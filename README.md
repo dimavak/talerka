@@ -1,0 +1,2 @@
+# talerka
+Talerka: meal builder
