@@ -262,6 +262,22 @@ export function moveMeal(state, from, to, today) {
   return true;
 }
 
+// «Памяняць месцамі»: дзве запланаваныя стравы мяняюцца слотамі, рэжымы слотаў (дома, з сабой) застаюцца.
+// Калі ў другім слоце стравы няма, гэта звычайны перанос.
+export function swapMeals(state, a, b, today) {
+  const sa = getSlot(state, a);
+  const sb = getSlot(state, b);
+  if (a === b || sa?.state !== 'planned' || !sa.tpl) return null;
+  if (sb?.state !== 'planned' || !sb.tpl) return moveMeal(state, a, b, today) ? 'moved' : null;
+  const content = (s) => ({ state: 'planned', tpl: s.tpl, fill: s.fill, m: s.m });
+  const keep = (s) => ({ mode: s.mode, ...(s.userMode ? { userMode: true } : {}) });
+  setSlot(state, a, { ...keep(sa), ...content(sb) });
+  setSlot(state, b, { ...keep(sb), ...content(sa) });
+  refreshLeftover(state, a, today);
+  refreshLeftover(state, b, today);
+  return 'swapped';
+}
+
 // Страва, выбраная карыстальнікам у рэжыме «зараз», займае гэты прыём.
 export function setDish(state, key, dish, today) {
   const old = getSlot(state, key) ?? {};

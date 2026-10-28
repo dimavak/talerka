@@ -5,7 +5,7 @@ import { defaultState, migrate, VERSION } from '../js/store.js';
 import { stockOn, probability, rhythm, reminders, availability, addPurchase, markNotHome } from '../js/stock.js';
 import {
   ensurePlan, keyOf, getSlot, dishAt, planDays, planRules, rebuildFrom, markEaten, markSkipped,
-  markReplaced, unmark, moveMeal, reroll, portionsFor, gramsFor, slotMode,
+  markReplaced, unmark, moveMeal, swapMeals, reroll, portionsFor, gramsFor, slotMode,
 } from '../js/plan.js';
 import { buildList, toggleBought, addManual, clearBought, shareText } from '../js/shopping.js';
 
@@ -130,6 +130,27 @@ test('адзнакі: з\'еў, прапусціў, замяніў іншым, �
 
   markSkipped(s, keyOf(addDays(TODAY, 1), 'dinner'), TODAY);
   assert.equal(getSlot(s, keyOf(addDays(TODAY, 1), 'dinner')).state, 'skipped');
+});
+
+test('«памяняць месцамі» мяняе стравы двух дзён, рэжымы слотаў застаюцца', () => {
+  const s = household();
+  s.settings.members[0].take = ['fri'];
+  ensurePlan(s, TODAY);
+  const a = keyOf(addDays(TODAY, 1), 'dinner');
+  const b = keyOf(addDays(TODAY, 3), 'dinner');
+  const ta = getSlot(s, a).tpl;
+  const tb = getSlot(s, b).tpl;
+  assert.equal(swapMeals(s, a, b, TODAY), 'swapped');
+  assert.equal(getSlot(s, a).tpl, tb);
+  assert.equal(getSlot(s, b).tpl, ta);
+  assert.equal(getSlot(s, a).state, 'planned');
+  // Абед з сабой на пятніцу ідзе з новай вячэры чацвярга.
+  const fri = getSlot(s, keyOf('2026-10-30', 'lunch'));
+  if (fri.leftoverOf) assert.equal(fri.tpl, getSlot(s, keyOf('2026-10-29', 'dinner')).tpl);
+  // У вольны слот — звычайны перанос.
+  markSkipped(s, b, TODAY);
+  assert.equal(swapMeals(s, a, b, TODAY), 'moved');
+  assert.equal(getSlot(s, a).state, 'moved');
 });
 
 test('«іншая страва» не паўтарае адхіленую', () => {

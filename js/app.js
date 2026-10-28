@@ -13,7 +13,7 @@ import { DEMO_STORE, demoLines } from './demo.js';
 import { stockOn, availability, levelOf, reminders, addPurchase, markNotHome } from './stock.js';
 import {
   REPLACED, keyOf, parseKey, getSlot, dishAt, ensurePlan, hasStock, rebuildFrom, refill,
-  markEaten, markSkipped, markReplaced, unmark, moveMeal, reroll, setDish,
+  markEaten, markSkipped, markReplaced, unmark, swapMeals, reroll, setDish,
   portionsFor, gramsFor, planRules, moveTargets, members, people,
 } from './plan.js';
 import { buildList, toggleBought, addManual, removeManual, clearBought, snooze, shareText } from './shopping.js';
@@ -25,7 +25,7 @@ function todayISO() {
 }
 
 let state = loadState(todayISO());
-const ui = { preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '' };
+const ui = { preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '', swap: false, swapFrom: null, undo: null, said: null };
 // Запасы на сёння лічацца адзін раз на перамалёўку.
 let stock = {};
 
@@ -63,15 +63,22 @@ function save() {
 }
 
 let toastTimer;
-function toast(text) {
+function toast(text, { undo = false } = {}) {
+  ui.said = text;
   document.querySelector('.toast')?.remove();
   const el = document.createElement('div');
   el.className = 'toast';
   el.setAttribute('role', 'status');
   el.textContent = text;
+  if (undo) {
+    const b = document.createElement('button');
+    b.dataset.action = 'undo';
+    b.textContent = 'Адмяніць';
+    el.append(b);
+  }
   document.body.append(el);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.remove(), 2600);
+  toastTimer = setTimeout(() => el.remove(), undo ? 7000 : 2600);
 }
 
 const svg = (w, body, sw = 2) => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -134,9 +141,9 @@ function plateStyle(d) {
 const methodLine = (m) => `${m.total} хв${m.equip === 'none' ? '' : ' · ' + EQUIPMENT[m.equip].toLowerCase()}`;
 
 // Падрабязны рэцэпт схаваны: грамы на ўсю сям'ю і крокі.
-function recipe(d, key, portions) {
+function recipe(d, key, portions, forceOpen = false) {
   const total = portions.eat + portions.take;
-  const open = ui.open.has(key) ? ' open' : '';
+  const open = forceOpen || ui.open.has(key) ? ' open' : '';
   const note = d.method.note ? ` (${esc(d.method.note)})` : '';
   const rows = gramsFor(d, total).map((g) => `<li><span>${esc(cap(g.name))}</span><span>${g.pieces ? `${g.pieces} шт · ` : ''}${g.grams} г</span></li>`).join('');
   const who = portions.take ? `${portionsWord(total)}: ${portions.eat} зараз і ${portions.take} з сабой на заўтра` : portionsWord(total);
@@ -209,10 +216,10 @@ function slotCard(key, { forceMore = false } = {}) {
   const panel = more ? `<div class="more">
       <div class="small muted">Замяніў іншым</div>
       <div class="pills">${Object.entries(REPLACED).map(([k, label]) => `<button class="pill" data-action="replace" data-key="${key}" data-by="${k}">${esc(label)}</button>`).join('')}</div>
-      <label class="small muted" for="move-${esc(key)}">Перанесці на іншы прыём</label>
+      <label class="small muted" for="move-${esc(key)}">Памяняць месцамі з іншым прыёмам або перанесці на вольны</label>
       <div class="inline">
-        <select id="move-${esc(key)}" class="input">${targets.map((t) => `<option value="${t.key}">${esc(cap(slotName(t.key)))}${t.current ? ` (замест: ${esc(t.current.toLowerCase())})` : ''}</option>`).join('')}</select>
-        <button class="btn ghost" data-action="move" data-key="${key}">Перанесці</button>
+        <select id="move-${esc(key)}" class="input">${targets.map((t) => `<option value="${t.key}">${esc(cap(slotName(t.key)))}: ${t.current ? esc(t.current.toLowerCase()) : 'вольна'}</option>`).join('')}</select>
+        <button class="btn ghost" data-action="move" data-key="${key}">Памяняць</button>
       </div>
       <div class="actions"><button class="btn ghost" data-action="reroll" data-key="${key}">Іншая страва</button></div>
     </div>` : '';
@@ -227,7 +234,7 @@ function slotCard(key, { forceMore = false } = {}) {
       </div>
     </div>
     ${slot.leftoverOf ? '' : availabilityLine(d)}
-    ${slot.leftoverOf ? '' : recipe(d, key, portions)}
+    ${slot.leftoverOf ? '' : recipe(d, key, portions, forceMore)}
     <div class="actions">
       <button class="btn" data-action="eaten" data-key="${key}">Гатова</button>
       <button class="btn ghost" data-action="skip" data-key="${key}">Прапусціць</button>
@@ -425,8 +432,15 @@ function viewWeek() {
       <div class="day">${WEEKDAY_SHORT[weekdayOf(date)]}<small>${shortDate(date)}</small></div>
       ${MEALS.map((meal) => {
         const key = keyOf(date, meal);
-        const [text, cls] = cellText(getSlot(state, key), dishAt(state, key));
-        return `<a class="cell ${cls}${date === t ? ' today' : ''}" href="#/slot/${key}" aria-label="${MEAL_NAMES[meal]} ${shortDate(date)}: ${esc(text)}">${esc(text)}</a>`;
+        const slot = getSlot(state, key);
+        const [text, cls] = cellText(slot, dishAt(state, key));
+        const label = `${MEAL_NAMES[meal]} ${shortDate(date)}: ${esc(text)}`;
+        if (ui.swap) {
+          const can = slot?.state === 'planned' || (ui.swapFrom && !['eaten', 'replaced'].includes(slot?.state));
+          const picked = ui.swapFrom === key;
+          return `<button class="cell ${cls}${picked ? ' picked' : ''}" data-action="pick-swap" data-key="${key}" ${can ? '' : 'disabled'} aria-pressed="${picked}" aria-label="${label}">${esc(text)}</button>`;
+        }
+        return `<a class="cell ${cls}${date === t ? ' today' : ''}" href="#/slot/${key}" aria-label="${label}. Адкрыць рэцэпт і дзеянні">${esc(text)}</a>`;
       }).join('')}
     </div>`).join('');
 
@@ -437,9 +451,13 @@ function viewWeek() {
       <div class="week-row head"><div></div><div>Снядан.</div><div>Абед</div><div>Вячэра</div></div>
       ${rows}
     </div>
-    <p class="note">План захоўваецца. Націсніце на прыём, каб адзначыць, што з'елі, прапусцілі, замянілі іншым ці перанеслі.</p>
+    ${ui.swap
+      ? `<p class="swaphint">${ui.swapFrom ? `Цяпер націсніце, з чым памяняць «${esc(cellText(getSlot(state, ui.swapFrom), dishAt(state, ui.swapFrom))[0])}».` : 'Націсніце на першую страву, потым на другую — яны памяняюцца месцамі.'}</p>
+         <div class="actions"><button class="btn ghost" data-action="swap-mode">Гатова</button></div>`
+      : `<p class="note">Націсніце на страву, каб убачыць рэцэпт з грамамі і адзначыць, што з'елі, прапусцілі ці замянілі.</p>`}
     <div class="actions">
-      <a class="btn" href="#/list">Спіс пакупак</a>
+      ${ui.swap ? '' : '<button class="btn" data-action="swap-mode">Памяняць месцамі</button>'}
+      <a class="btn ghost" href="#/list">Спіс пакупак</a>
       <button class="btn ghost" data-action="rebuild">${ui.confirmRebuild ? 'Націсніце яшчэ раз: перабудаваць' : 'Перабудаваць астатняе'}</button>
     </div>
     <p class="note">«Перабудаваць» мяняе толькі незакранутыя прыёмы з сёння: адзначанае і перанесенае застаецца.</p>`;
@@ -631,11 +649,30 @@ const actions = {
   unmark(el) { unmark(state, el.dataset.key); save(); },
   move(el) {
     const to = document.getElementById(`move-${el.dataset.key}`)?.value;
-    if (to && moveMeal(state, el.dataset.key, to, todayISO())) {
+    const done = to && swapMeals(state, el.dataset.key, to, todayISO());
+    if (done) {
       ui.more = null;
       save();
-      toast(`Перанесена: ${slotName(to)}`);
+      toast(`${done === 'swapped' ? 'Памяняна з' : 'Перанесена на'}: ${slotName(to)}`);
     }
+  },
+  'swap-mode'() { ui.swap = !ui.swap; ui.swapFrom = null; },
+  'pick-swap'(el) {
+    const key = el.dataset.key;
+    if (!ui.swapFrom || ui.swapFrom === key) { ui.swapFrom = ui.swapFrom === key ? null : key; return; }
+    const done = swapMeals(state, ui.swapFrom, key, todayISO());
+    ui.swapFrom = null;
+    if (done) {
+      save();
+      toast(done === 'swapped' ? 'Памяняна месцамі' : 'Перанесена');
+    }
+  },
+  undo() {
+    if (!ui.undo) return;
+    state = JSON.parse(ui.undo);
+    ui.undo = null;
+    save();
+    toast('Адменена');
   },
   reroll(el) { reroll(state, el.dataset.key, todayISO()); save(); },
   rebuild() {
@@ -774,13 +811,37 @@ const actions = {
   },
 };
 
+const SAID = {
+  skip: 'Прапушчана', replace: 'Адзначана: замест плана', unmark: 'Вернута', reroll: 'Падабрана іншая страва',
+  take: 'Дні «з сабой» зменены, план з заўтра перабудаваны', sched: 'Графік зменены, план з заўтра перабудаваны',
+  equip: 'Кухня зменена, план з заўтра перабудаваны', minutes: 'Час на сёння зменены', snooze: 'Схавана на тыдзень',
+  'add-member': 'Удзельнік дададзены', 'remove-member': 'Удзельнік прыбраны', 'remove-manual': 'Прыбрана са спіса',
+  'clear-bought': 'Купленае прыбрана', have: 'Адзначана: ёсць дома',
+};
+// Адзнаку «купіў» і так можна зняць тым жа дотыкам.
+const NO_UNDO = new Set(['undo', 'share', 'bought']);
+
+// Любое дзеянне, што змяніла дадзеныя, можна адмяніць з падказкі ўнізе.
+async function withUndo(fn, said = null) {
+  const before = JSON.stringify(state);
+  ui.said = null;
+  document.querySelector('.toast')?.remove();
+  await fn();
+  if (JSON.stringify(state) !== before) {
+    ui.undo = before;
+    toast(ui.said ?? said ?? 'Зменена', { undo: true });
+  }
+}
+
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || !actions[el.dataset.action]) return;
   e.preventDefault();
-  if (el.dataset.action !== 'reset') ui.confirmReset = false;
-  if (el.dataset.action !== 'rebuild') ui.confirmRebuild = false;
-  await actions[el.dataset.action](el);
+  const a = el.dataset.action;
+  if (a !== 'reset') ui.confirmReset = false;
+  if (a !== 'rebuild') ui.confirmRebuild = false;
+  if (NO_UNDO.has(a)) await actions[a](el);
+  else await withUndo(() => actions[a](el), SAID[a]);
   render();
 });
 
@@ -788,7 +849,7 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'manual') {
     e.preventDefault();
-    actions['add-manual']();
+    withUndo(() => actions['add-manual']());
     render();
     document.getElementById('manual')?.focus();
   }
@@ -802,6 +863,10 @@ document.addEventListener('toggle', (e) => {
 
 document.addEventListener('change', (e) => {
   const el = e.target;
+  if (el.dataset.setting || el.dataset.member != null) withUndo(() => applyChange(el), 'Захавана').then(render);
+});
+
+function applyChange(el) {
   if (el.dataset.setting) {
     const v = Number(el.value);
     if (Number.isFinite(v) && v > 0) {
@@ -817,9 +882,9 @@ document.addEventListener('change', (e) => {
       save();
     }
   }
-});
+}
 
-window.addEventListener('hashchange', () => { ui.preview = null; ui.more = null; render(); window.scrollTo(0, 0); });
+window.addEventListener('hashchange', () => { ui.preview = null; ui.more = null; ui.swap = false; ui.swapFrom = null; render(); window.scrollTo(0, 0); });
 render();
 
 // Дапаможная інфармацыя для распрацоўкі ў кансолі.
