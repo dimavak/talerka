@@ -1,19 +1,33 @@
-// Інтэрфейс Talerka: шэсць экранаў па першым дызайне, маршрутызацыя праз #.
-import { BY_ID, PRODUCTS } from './products.js';
+// Інтэрфейс Talerka: экраны па першым дызайне, маршрутызацыя праз #.
+import { BY_ID, PRODUCTS, GROUPS } from './products.js';
 import { BY_TEMPLATE } from './templates.js';
 import {
   MEALS, MEAL_NAMES, EQUIPMENT, WEEKDAY_SHORT, WEEK_GOALS,
-  suggestNow, planWeek, weekdayOf, addDays, timeLimit, dishLabel,
+  suggestNow, weekdayOf, addDays, dishLabel,
 } from './engine.js';
 import {
-  CATEGORIES, GOOD, LESS, linesFromCSV, parseReceiptText, parseTypedList,
-  latestReceiptIds, basketStats, basketAdvice, lastPrice, receiptCount,
+  CATEGORIES, GOOD, LESS, parseTypedList, basketStats, basketAdvice, lastPrice, receiptCount,
 } from './receipt.js';
 import { loadState, saveState, defaultState } from './store.js';
 import { DEMO_STORE, demoLines } from './demo.js';
+import { stockOn, availability, levelOf, reminders, addPurchase, markNotHome } from './stock.js';
+import {
+  REPLACED, keyOf, parseKey, getSlot, dishAt, ensurePlan, hasStock, rebuildFrom, refill,
+  markEaten, markSkipped, markReplaced, unmark, moveMeal, reroll, setDish,
+  portionsFor, gramsFor, planRules, moveTargets, members, people,
+} from './plan.js';
+import { buildList, toggleBought, addManual, removeManual, clearBought, snooze, shareText } from './shopping.js';
 
-let state = loadState();
-const ui = { addTab: 'receipt', preview: null, nowMeal: null, lastNow: null, open: new Set(), confirmReset: false };
+function todayISO() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+let state = loadState(todayISO());
+const ui = { preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '' };
+// Запасы на сёння лічацца адзін раз на перамалёўку.
+let stock = {};
 
 const main = document.getElementById('main');
 const nav = document.getElementById('nav');
@@ -22,12 +36,6 @@ const nav = document.getElementById('nav');
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function todayISO() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
 const MONTHS = ['студзеня', 'лютага', 'сакавіка', 'красавіка', 'мая', 'чэрвеня', 'ліпеня', 'жніўня', 'верасня', 'кастрычніка', 'лістапада', 'снежня'];
 const DAYS_LONG = { mon: 'панядзелак', tue: 'аўторак', wed: 'серада', thu: 'чацвер', fri: 'пятніца', sat: 'субота', sun: 'нядзеля' };
 function longDate(iso) {
@@ -35,7 +43,20 @@ function longDate(iso) {
   return `${DAYS_LONG[weekdayOf(iso)]}, ${d} ${MONTHS[m - 1]}`;
 }
 const shortDate = (iso) => `${Number(iso.slice(8))}.${iso.slice(5, 7)}`;
+const dayName = (iso) => (iso === todayISO() ? 'сёння' : iso === addDays(todayISO(), 1) ? 'заўтра' : `${WEEKDAY_SHORT[weekdayOf(iso)]} ${shortDate(iso)}`);
+const slotName = (key) => { const { date, meal } = parseKey(key); return `${dayName(date)}, ${MEAL_NAMES[meal].toLowerCase()}`; };
 const zl = (n) => n.toFixed(2).replace('.', ',') + ' зл';
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+const name = (id) => BY_ID[id]?.name ?? id;
+
+function plural(n, one, few, many) {
+  const a = n % 10, b = n % 100;
+  if (a === 1 && b !== 11) return one;
+  if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
+  return many;
+}
+const portionsWord = (n) => `${n} ${plural(n, 'порцыя', 'порцыі', 'порцый')}`;
+const daysWord = (n) => `${n} ${plural(n, 'дзень', 'дні', 'дзён')}`;
 
 function save() {
   if (!saveState(state)) toast('Не атрымалася захаваць: браўзер не дае доступу да сховішча.');
@@ -53,17 +74,20 @@ function toast(text) {
   toastTimer = setTimeout(() => el.remove(), 2600);
 }
 
+const svg = (w, body, sw = 2) => `<svg width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const ICON = {
-  plus: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
-  back: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
-  today: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>',
-  week: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
-  basket: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h16l-1.5 11h-13z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
-  kitchen: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M8 7h.01M11 7h.01"/></svg>',
-  receipt: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>',
-  camera: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="4"/><path d="M9 6l1.5-2h3L15 6"/></svg>',
-  list: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h9"/></svg>',
-  cart: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 8h16l-1.5 11h-13z"/><path d="M12 11v5M9.5 13.5h5"/></svg>',
+  plus: svg(22, '<path d="M12 5v14M5 12h14"/>'),
+  back: svg(20, '<path d="M15 5l-7 7 7 7"/>'),
+  today: svg(22, '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>'),
+  week: svg(22, '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>'),
+  list: svg(22, '<path d="M9 7h11M9 12h11M9 17h11"/><path d="M4 7l1 1 2-2M4 12l1 1 2-2M4 17l1 1 2-2"/>'),
+  basket: svg(22, '<path d="M4 8h16l-1.5 11h-13z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'),
+  kitchen: svg(22, '<rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M8 7h.01M11 7h.01"/>'),
+  camera: svg(26, '<rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="4"/><path d="M9 6l1.5-2h3L15 6"/>', 1.8),
+  words: svg(26, '<path d="M5 7h14M5 12h14M5 17h9"/>', 1.8),
+  cart: svg(20, '<path d="M4 8h16l-1.5 11h-13z"/><path d="M12 11v5M9.5 13.5h5"/>'),
+  share: svg(20, '<path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/>'),
+  check: svg(16, '<path d="M5 12l5 5 9-10"/>', 2.5),
 };
 
 // ── Агульныя разлікі ──
@@ -77,16 +101,10 @@ const TIME_CHOICES = [
 
 function todayMinutes() {
   const t = todayISO();
-  if (state.dayMinutes[t] != null) return state.dayMinutes[t];
-  return timeLimit(state.settings, weekdayOf(t), 'dinner');
-}
-
-// Налады з улікам выбару часу на сёння.
-function effectiveSettings() {
-  const t = todayISO();
   const m = state.dayMinutes[t];
-  if (m == null) return state.settings;
-  return { ...state.settings, dayMinutes: { [weekdayOf(t)]: m === 'batch' ? Infinity : m } };
+  if (m != null) return m;
+  const wd = weekdayOf(t);
+  return wd === 'sat' || wd === 'sun' ? state.settings.weekendMinutes : state.settings.eveningMinutes;
 }
 
 function knownProducts() {
@@ -107,10 +125,6 @@ function weekContext() {
   return ctx;
 }
 
-function currentPlan() {
-  return planWeek({ pantry: state.pantry, settings: effectiveSettings(), start: todayISO(), overrides: state.overrides });
-}
-
 function plateStyle(d) {
   const a = Math.round(d.plate.plant * 100);
   const b = Math.round((d.plate.plant + d.plate.grain) * 100);
@@ -119,18 +133,18 @@ function plateStyle(d) {
 
 const methodLine = (m) => `${m.total} хв${m.equip === 'none' ? '' : ' · ' + EQUIPMENT[m.equip].toLowerCase()}`;
 
-function ingredientsList(d) {
-  const have = d.chosen.flatMap((c) => c.ids).map((id) => BY_ID[id].name);
-  const need = d.missing.flatMap((c) => c.ids).map((id) => BY_ID[id].name);
-  return `<p class="ingredients"><b>Складнікі:</b> ${esc(have.join(', '))}${need.length ? ` · <b>дакупіць:</b> ${esc(need.join(', '))}` : ''}. Плюс алей, соль, спецыі.</p>`;
-}
-
-function recipe(d, key) {
+// Падрабязны рэцэпт схаваны: грамы на ўсю сям'ю і крокі.
+function recipe(d, key, portions) {
+  const total = portions.eat + portions.take;
   const open = ui.open.has(key) ? ' open' : '';
   const note = d.method.note ? ` (${esc(d.method.note)})` : '';
+  const rows = gramsFor(d, total).map((g) => `<li><span>${esc(cap(g.name))}</span><span>${g.pieces ? `${g.pieces} шт · ` : ''}${g.grams} г</span></li>`).join('');
+  const who = portions.take ? `${portionsWord(total)}: ${portions.eat} зараз і ${portions.take} з сабой на заўтра` : portionsWord(total);
   return `<details class="recipe" data-key="${esc(key)}"${open}>
-    <summary>Як гатаваць${note}</summary>
-    ${ingredientsList(d)}
+    <summary>Падрабязна: грамы і крокі${note}</summary>
+    <p class="small muted">На ${esc(who)}</p>
+    <ul class="grams">${rows}</ul>
+    <p class="small muted">Плюс алей, соль, спецыі.</p>
     <ol>${d.method.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
   </details>`;
 }
@@ -146,72 +160,125 @@ function dishTags(d) {
   return `<div class="tags">${tags.join('')}</div>`;
 }
 
+// Што для стравы, хутчэй за ўсё, трэба купіць і што варта праверыць дома.
+function availabilityLine(d) {
+  const ids = [...new Set(d.chosen.flatMap((c) => c.ids))];
+  const buy = ids.filter((id) => levelOf(stock, id) === 'gone');
+  const check = ids.filter((id) => levelOf(stock, id) === 'maybe');
+  const out = [];
+  if (buy.length) out.push(`<p class="sub">Дакупіць: <b>${esc(buy.map(name).join(', '))}</b> · <a href="#/list">спіс</a></p>`);
+  if (check.length) {
+    out.push(`<div class="checkline"><span class="sub">Правер, ці ёсць:</span>${check.map((id) => `<span class="chip">${esc(name(id))}<button data-action="not-home" data-id="${id}" aria-label="${esc(name(id))}: няма дома">няма</button></span>`).join('')}</div>`);
+  }
+  return out.join('');
+}
+
+// Картка аднаго прыёму ежы з адзнакамі: з'еў, прапусціў, замяніў іншым, перанёс.
+function slotCard(key, { forceMore = false } = {}) {
+  const { date, meal } = parseKey(key);
+  const slot = getSlot(state, key);
+  const where = date === todayISO() ? '' : ` · ${dayName(date)}`;
+  const head = (extra = '') => `<div class="eyebrow">${MEAL_NAMES[meal]}${where}${extra}</div>`;
+  const simple = (text, buttons) => `<div class="card quiet">${head()}<p class="sub">${text}</p><div class="actions">${buttons}</div></div>`;
+  if (!slot) return simple('Пакуль не спланавана.', '<a class="btn ghost" href="#/add">Дадаць прадукты</a>');
+  if (slot.state === 'off') return simple('Па графіку не плануем.', `<button class="btn ghost" data-action="reroll" data-key="${key}">Усё ж спланаваць</button>`);
+  if (slot.state === 'empty') return simple('Не хапае прадуктаў, каб нешта прапанаваць.', `<button class="btn ghost" data-action="reroll" data-key="${key}">Падабраць яшчэ раз</button><a class="btn ghost" href="#/add">Дадаць прадукты</a>`);
+  if (slot.state === 'skipped') return simple('Прапушчаны.', `<button class="btn ghost" data-action="unmark" data-key="${key}">Вярнуць</button>`);
+  if (slot.state === 'replaced') return simple(`Замест плана: ${esc(REPLACED[slot.replacedBy] ?? 'іншае')}. На баланс тыдня не ўплывае.`, `<button class="btn ghost" data-action="unmark" data-key="${key}">Вярнуць</button>`);
+  if (slot.state === 'moved') return simple(`Страва перанесена: ${esc(slotName(slot.movedTo))}.`, `<button class="btn ghost" data-action="reroll" data-key="${key}">Падабраць іншую страву</button>`);
+
+  const d = dishAt(state, key);
+  if (!d) return simple('Страва з гэтага прыёму больш недаступная.', `<button class="btn ghost" data-action="reroll" data-key="${key}">Падабраць</button>`);
+  const portions = portionsFor(state, key);
+  const chips = [];
+  if (slot.mode === 'take') chips.push('<span class="tag warn">з сабой</span>');
+  if (slot.leftoverOf) chips.push('<span class="tag">з учорашняй вячэры</span>');
+  if (portions.take) chips.push(`<span class="tag warn">гатуйце на ${portions.eat + portions.take}: заўтра з сабой</span>`);
+  if (slot.movedFrom) chips.push('<span class="tag">перанесена</span>');
+
+  if (slot.state === 'eaten') {
+    return `<div class="card quiet">
+      ${head(` <span class="tag good">${ICON.check} з'едзена</span>`)}
+      <div class="title">${esc(d.template.title)}</div>
+      <div class="actions"><button class="btn ghost" data-action="unmark" data-key="${key}">Адмяніць</button></div>
+    </div>`;
+  }
+
+  const more = forceMore || ui.more === key;
+  const targets = more ? moveTargets(state, key, todayISO()) : [];
+  const panel = more ? `<div class="more">
+      <div class="small muted">Замяніў іншым</div>
+      <div class="pills">${Object.entries(REPLACED).map(([k, label]) => `<button class="pill" data-action="replace" data-key="${key}" data-by="${k}">${esc(label)}</button>`).join('')}</div>
+      <label class="small muted" for="move-${esc(key)}">Перанесці на іншы прыём</label>
+      <div class="inline">
+        <select id="move-${esc(key)}" class="input">${targets.map((t) => `<option value="${t.key}">${esc(cap(slotName(t.key)))}${t.current ? ` (замест: ${esc(t.current.toLowerCase())})` : ''}</option>`).join('')}</select>
+        <button class="btn ghost" data-action="move" data-key="${key}">Перанесці</button>
+      </div>
+      <div class="actions"><button class="btn ghost" data-action="reroll" data-key="${key}">Іншая страва</button></div>
+    </div>` : '';
+
+  return `<div class="card">
+    <div class="meal">
+      <div class="plate" style="${plateStyle(d)}" aria-hidden="true"></div>
+      <div class="meal-body">
+        ${head(` · ${slot.leftoverOf ? 'гатова' : methodLine(d.method)} ${chips.join('')}`)}
+        <div class="title">${esc(d.template.title)}</div>
+        <div class="sub">${esc(dishLabel(d))}</div>
+      </div>
+    </div>
+    ${slot.leftoverOf ? '' : availabilityLine(d)}
+    ${slot.leftoverOf ? '' : recipe(d, key, portions)}
+    <div class="actions">
+      <button class="btn" data-action="eaten" data-key="${key}">Гатова</button>
+      <button class="btn ghost" data-action="skip" data-key="${key}">Прапусціць</button>
+      ${forceMore ? '' : `<button class="btn ghost" data-action="more" data-key="${key}" aria-expanded="${more}">${more ? 'Схаваць' : 'Іншае…'}</button>`}
+    </div>
+    ${panel}
+  </div>`;
+}
+
 // ── Экраны ──
+
+function emptyStart() {
+  return `
+    <div class="empty">
+      <h1>Пачнём з таго, што вы купляеце</h1>
+      <p class="muted">Talerka мяркуе па чэках, што хутчэй за ўсё ёсць дома, складае план на тыдзень і спіс пакупак. Фота чэка будзе ў наступнай версіі; пакуль напішыце, што купілі, словамі.</p>
+      <a class="btn" href="#/add">Дадаць прадукты</a>
+      ${demoButton()}
+    </div>`;
+}
+
+function reminderPlaque() {
+  const rs = reminders(state, todayISO());
+  if (!rs.length) return '';
+  const text = rs.map((r) => `${r.label} — ${r.since == null ? 'не было ў чэках' : daysWord(r.since)}`).join(', ');
+  return `<div class="upgrade remind">
+    <div class="eyebrow">${ICON.cart} Даўно не куплялі карыснае</div>
+    <p>${esc(cap(text))}. Ужо ў спісе пакупак.</p>
+    <div class="actions"><a class="btn" href="#/list">Спіс пакупак</a><button class="btn ghost" data-action="snooze" data-groups="${rs.map((r) => r.group).join(',')}">Схаваць на тыдзень</button></div>
+  </div>`;
+}
 
 function viewToday() {
   const t = todayISO();
-  if (!state.pantry.length) {
-    return `
-      <div class="top"><div><div class="brand">talerka</div><div class="sub">${longDate(t)}</div></div></div>
-      <div class="empty">
-        <h1>Пачнём з таго, што ў вас ёсць</h1>
-        <p class="muted">Дадайце чэк з крамы або проста напішыце, што ляжыць дома. Talerka падбярэ простыя здаровыя стравы на сняданак, абед і вячэру.</p>
-        <a class="btn" href="#/add">Дадаць прадукты</a>
-        ${demoButton()}
-      </div>
-      ${kitchenHint()}`;
-  }
-  const plan = currentPlan();
-  const day = plan.days[0];
+  const top = `<div class="top"><div><div class="brand">talerka</div><div class="sub">${longDate(t)}</div></div>
+    <a class="round fill" href="#/add" aria-label="Дадаць прадукты">${ICON.plus}</a></div>`;
+  if (!hasStock(state)) return `${top}${emptyStart()}${kitchenHint()}`;
   const cur = todayMinutes();
-  const cards = MEALS.map((meal) => {
-    const m = day.meals[meal];
-    const key = `${t}:${meal}`;
-    if (m.mode === 'skip') {
-      return `<div class="card"><div class="row"><div class="eyebrow">${MEAL_NAMES[meal]}</div><span class="sub">прапушчаны</span></div>
-        <div class="actions"><button class="btn ghost" data-action="mode" data-key="${key}" data-mode="home">Вярнуць</button></div></div>`;
-    }
-    if (!m.dish) {
-      return `<div class="card"><div class="eyebrow">${MEAL_NAMES[meal]}</div><p class="sub">Не хапае прадуктаў для гэтага прыёму. <a href="#/add">Дадаць</a></p></div>`;
-    }
-    const d = m.dish;
-    const cooked = state.cooked.some((c) => c.date === t && c.meal === meal);
-    const chips = [];
-    if (m.mode === 'take') chips.push('<span class="tag warn">з сабой</span>');
-    if (m.leftover) chips.push('<span class="tag">рэшткі ўчорашняй вячэры</span>');
-    if (meal === 'dinner' && d.cookDouble) chips.push('<span class="tag warn">гатуйце ўдвая: заўтра абед з сабой</span>');
-    return `<div class="card">
-      <div class="meal">
-        <div class="plate" style="${plateStyle(d)}" aria-hidden="true"></div>
-        <div class="meal-body">
-          <div class="eyebrow">${MEAL_NAMES[meal]} · ${m.leftover ? 'гатова' : methodLine(d.method)} ${chips.join('')}</div>
-          <div class="title">${esc(d.template.title)}</div>
-          <div class="sub">${esc(dishLabel(d))}</div>
-        </div>
-      </div>
-      ${d.missing.length ? `<p class="sub">Дакупіць: <b>${esc(d.missing.map((x) => BY_ID[x.ids[0]].name).join(', '))}</b></p>` : ''}
-      ${m.leftover ? '' : recipe(d, key)}
-      <div class="actions">
-        ${cooked ? '<span class="tag good">гатова</span>' : `<button class="btn" data-action="cooked" data-meal="${meal}">Гатова</button>`}
-        <button class="btn ghost" data-action="mode" data-key="${key}" data-mode="skip">Прапусціць</button>
-        ${meal !== 'breakfast' && m.mode !== 'take' ? `<button class="btn ghost" data-action="mode" data-key="${key}" data-mode="take">З сабой</button>` : ''}
-      </div>
-    </div>`;
-  }).join('');
-
-  const r = Object.fromEntries(plan.rules.map((x) => [x.id, x]));
+  const r = Object.fromEntries(planRules(state, t).map((x) => [x.id, x]));
+  const list = buildList(state, t);
+  const toBuy = [...list.plan, ...list.remind].filter((x) => !x.bought).length + list.manual.filter((m) => !m.bought).length;
   return `
-    <div class="top">
-      <div><div class="brand">talerka</div><div class="sub">${longDate(t)}</div></div>
-      <a class="round fill" href="#/add" aria-label="Дадаць прадукты">${ICON.plus}</a>
-    </div>
+    ${top}
     <div class="section">
       <h2>Колькі часу сёння</h2>
       <div class="seg" role="group" aria-label="Час на гатаванне">
-        ${TIME_CHOICES.map((c) => `<button data-action="minutes" data-v="${c.v}" aria-pressed="${String(cur) === String(c.v) || (cur === Infinity && c.v === 'batch')}">${c.label}</button>`).join('')}
+        ${TIME_CHOICES.map((c) => `<button data-action="minutes" data-v="${c.v}" aria-pressed="${String(cur) === String(c.v)}">${c.label}</button>`).join('')}
       </div>
     </div>
-    <div class="section">${cards}
+    ${reminderPlaque()}
+    <div class="section">${MEALS.map((m) => slotCard(keyOf(t, m))).join('')}
       <a class="btn dashed" href="#/now">Іншыя стравы з таго, што ёсць</a>
     </div>
     <div class="balance">
@@ -222,6 +289,7 @@ function viewToday() {
         <div class="stat ${r.plants.ok ? '' : 'low'}"><b>${r.plants.value}</b><span>раслін</span></div>
         <div class="stat ${r.fiber.ok ? '' : 'low'}"><b>${r.fiber.value.replace(' г/дзень', ' г')}</b><span>валакно ў дзень</span></div>
       </div>
+      ${toBuy ? `<a class="small" href="#/list">У спісе пакупак: ${toBuy}</a>` : ''}
     </div>`;
 }
 
@@ -254,28 +322,30 @@ function viewNow() {
   const limitRaw = todayMinutes();
   const limit = meal === 'breakfast' ? state.settings.breakfastMinutes : limitRaw === 'batch' ? null : limitRaw;
   const ctx = weekContext();
-  const { ready, upgrade } = suggestNow({ pantry: state.pantry, settings: state.settings, meal, limit, ctx });
+  const { have, maybe } = availability(stock);
+  const { ready, upgrade } = suggestNow({ pantry: [...have], maybe, settings: state.settings, meal, limit, ctx });
   ui.lastNow = ready;
   const eq = state.settings.equipment.map((e) => EQUIPMENT[e].toLowerCase()).join(', ');
+  const portions = { eat: people(state.settings), take: 0 };
 
   const cards = ready.length ? ready.map((d, i) => `
     <div class="card ${i === 0 ? 'selected' : ''}">
       <div class="row"><div class="title">${esc(d.template.title)}</div><div class="time">${d.method.total} хв</div></div>
       <div class="sub">${esc(dishLabel(d))}</div>
       ${dishTags(d)}
-      ${recipe(d, `now:${d.template.id}`)}
+      ${availabilityLine(d)}
+      ${recipe(d, `now:${d.template.id}`, portions)}
       <div class="actions"><button class="btn" data-action="cook-now" data-tpl="${d.template.id}" data-meal="${meal}">Гатую гэта</button></div>
     </div>`).join('')
-    : `<div class="empty"><p>З таго, што ёсць, у межах ${limit ?? 'любога'} хв нічога не складаецца.</p><a class="btn" href="#/add">Дадаць прадукты</a></div>`;
+    : `<div class="empty"><p>З таго, што, хутчэй за ўсё, ёсць дома, у межах ${limit ?? 'любога'} хв нічога не складаецца.</p><a class="btn" href="#/add">Дадаць прадукты</a></div>`;
 
   let up = '';
   if (upgrade) {
     const price = lastPrice(state.lines, upgrade.buy);
-    const name = BY_ID[upgrade.buy].name;
     up = `<div class="upgrade">
       <div class="eyebrow">${ICON.cart} Дакупі адно</div>
-      <p><b>${esc(name[0].toUpperCase() + name.slice(1))}</b>${price ? `, апошні раз ${zl(price.price)} за ${price.unit} у ${esc(price.store)}` : ''}. Тады атрымаецца «${esc(upgrade.dish.template.title)}»: ${esc(upgrade.reasons.join(', '))}.</p>
-      <div class="actions"><button class="btn" data-action="wish" data-id="${upgrade.buy}">У спіс пакупак</button></div>
+      <p><b>${esc(cap(name(upgrade.buy)))}</b>${price ? `, апошні раз ${zl(price.price)} за ${price.unit} у ${esc(price.store)}` : ''}. Тады атрымаецца «${esc(upgrade.dish.template.title)}»: ${esc(upgrade.reasons.join(', '))}.</p>
+      <div class="actions"><button class="btn" data-action="wish" data-ids="${upgrade.buy}">У спіс пакупак</button></div>
     </div>`;
   }
 
@@ -291,106 +361,139 @@ function viewNow() {
     ${up}`;
 }
 
-function viewAdd() {
-  const tab = ui.addTab;
-  let body = '';
-  if (tab === 'receipt') {
-    body = `
-      <p class="note">Загрузіце CSV з гісторыяй пакупак (store, date, item_pl, qty, unit, paid_pln, category) або ўстаўце тэкст чэка радкамі. Фота чэка будзе ў наступнай версіі.</p>
-      <label class="btn ghost" for="csv-file" style="cursor:pointer">Выбраць CSV-файл</label>
-      <input id="csv-file" type="file" accept=".csv,text/csv" hidden>
-      <label for="receipt-text" class="small muted">Або тэкст чэка</label>
-      <textarea id="receipt-text" placeholder="MSC Łosoś tusza 0,776 x29,90 23,20C&#10;Hummus 160g 1 x4,19 4,19C"></textarea>
-      <button class="btn" data-action="parse-receipt">Распазнаць</button>`;
-  } else if (tab === 'list') {
-    body = `
-      <label for="typed-list" class="small muted">Праз коску ці з новага радка</label>
-      <textarea id="typed-list" placeholder="яйкі, грэчка, марожаныя брокалі, кефір"></textarea>
-      <button class="btn" data-action="parse-list">Распазнаць</button>`;
-  }
+function stockChips(ids, buttons) {
+  return `<div class="chips">${ids.map((id) => `<span class="chip">${esc(name(id))}${buttons(id)}</span>`).join('')}</div>`;
+}
 
+function viewAdd() {
   let preview = '';
   const pv = ui.preview;
   if (pv) {
-    const rows = pv.ids.map((id) => `<div><span>${esc(pv.source?.[id] ?? '')}${pv.source?.[id] ? ' → ' : ''}${esc(BY_ID[id].name)}</span><span>${state.pantry.includes(id) ? 'ужо ёсць' : 'новае'}</span></div>`).join('');
-    const unk = pv.unknown.slice(0, 8).map((u) => `<div class="unknown"><span>${esc(u)}</span><span>не ежа ці не ведаю</span></div>`).join('');
+    const rows = pv.ids.map((id) => `<div><span>${esc(name(id))}</span><span>${levelOf(stock, id) === 'likely' ? 'ужо, хутчэй за ўсё, ёсць' : 'новае'}</span></div>`).join('');
+    const unk = pv.unknown.slice(0, 8).map((u) => `<div class="unknown"><span>${esc(u)}</span><span>не ведаю</span></div>`).join('');
     preview = `<div class="card">
-      <div class="row"><div class="title">${esc(pv.heading)}</div>${pv.ids.length ? `<span class="tag good">${pv.ids.length} складн.</span>` : ''}</div>
-      ${pv.extra ? `<p class="sub">${esc(pv.extra)}</p>` : ''}
-      <div class="receipt">${rows}${unk}${pv.unknown.length > 8 ? `<div class="unknown"><span>+ яшчэ ${pv.unknown.length - 8}</span><span></span></div>` : ''}</div>
-      <button class="btn big" data-action="apply-preview" ${pv.ids.length || pv.lines?.length ? '' : 'disabled'}>Дадаць у запасы</button>
+      <div class="row"><div class="title">Распазнана</div>${pv.ids.length ? `<span class="tag good">${pv.ids.length} складн.</span>` : ''}</div>
+      <div class="receipt">${rows}${unk}</div>
+      <button class="btn big" data-action="apply-preview" ${pv.ids.length ? '' : 'disabled'}>Купілі сёння</button>
     </div>`;
   }
 
-  const pantry = state.pantry.length
-    ? `<div class="chips">${state.pantry.map((id) => `<span class="chip">${esc(BY_ID[id]?.name ?? id)}<button data-action="remove" data-id="${id}" aria-label="Прыбраць ${esc(BY_ID[id]?.name ?? id)}">×</button></span>`).join('')}</div>
-       <button class="btn ghost" data-action="clear-pantry">Усё з'едзена, ачысціць</button>`
-    : '<p class="sub">Пакуль пуста.</p>';
+  const ids = Object.keys(stock).sort((a, b) => name(a).localeCompare(name(b), 'be'));
+  const likely = ids.filter((id) => stock[id].level === 'likely');
+  const maybe = ids.filter((id) => stock[id].level === 'maybe');
+  const noBtn = (id) => `<button data-action="not-home" data-id="${id}" aria-label="${esc(name(id))}: няма дома">×</button>`;
+  const yesBtn = (id) => `<button data-action="have" data-id="${id}" aria-label="${esc(name(id))}: ёсць дома">✓</button>`;
 
   return `
-    <div class="back"><a class="round" href="#/" aria-label="Назад">${ICON.back}</a><h1>Што ў вас ёсць?</h1></div>
-    <div class="tabs">
-      <button class="tab" data-action="add-tab" data-tab="receipt" aria-pressed="${tab === 'receipt'}">${ICON.receipt}Чэк</button>
-      <button class="tab" disabled title="Хутка">${ICON.camera}Фота · хутка</button>
-      <button class="tab" data-action="add-tab" data-tab="list" aria-pressed="${tab === 'list'}">${ICON.list}Спіс словамі</button>
+    <div class="back"><a class="round" href="#/" aria-label="Назад">${ICON.back}</a><h1>Што вы купілі?</h1></div>
+    <div class="tabs two-tabs">
+      <button class="tab" disabled title="Наступная версія">${ICON.camera}Фота чэка · хутка</button>
+      <button class="tab" aria-pressed="true">${ICON.words}Спіс словамі</button>
     </div>
-    ${body}
+    <label for="typed-list" class="small muted">Праз коску ці з новага радка</label>
+    <textarea id="typed-list" placeholder="яйкі, грэчка, марожаныя брокалі, кефір">${esc(ui.listText)}</textarea>
+    <button class="btn" data-action="parse-list">Распазнаць</button>
     ${preview}
-    <div class="section"><h2>Запасы дома</h2>${pantry}</div>
+    <div class="section"><h2>Хутчэй за ўсё ёсць дома</h2>
+      ${likely.length ? stockChips(likely, noBtn) : '<p class="sub">Пакуль нічога: дадайце пакупкі.</p>'}
+    </div>
+    ${maybe.length ? `<div class="section"><h2>Магчыма, ужо скончылася</h2>${stockChips(maybe, (id) => yesBtn(id) + noBtn(id))}</div>` : ''}
+    <p class="note">Talerka не вядзе дакладны ўлік: яна мяркуе па датах пакупак і тым, як часта вы купляеце. Праверыць халадзільнік перад гатаваннем — ваша справа. × — «гэтага няма», ✓ — «ёсць».</p>
     ${demoSection()}
     <p class="note">Усё захоўваецца толькі ў гэтым браўзеры на вашай прыладзе.</p>`;
 }
 
+function cellText(slot, dish) {
+  if (!slot) return ['—', ''];
+  switch (slot.state) {
+    case 'off': return ['не плануем', 'skip'];
+    case 'empty': return ['не хапае прадуктаў', 'skip'];
+    case 'skipped': return ['прапушчаны', 'skip'];
+    case 'replaced': return [REPLACED[slot.replacedBy] ?? 'іншае', 'skip'];
+    case 'moved': return ['перанесена', 'skip'];
+    case 'eaten': return [`✓ ${dish?.template.title ?? ''}`, 'done'];
+    default: return [(slot.leftoverOf ? 'З сабой: рэшткі' : slot.mode === 'take' ? 'З сабой: ' + dish.template.title.toLowerCase() : dish.template.title), slot.mode === 'take' ? 'take' : ''];
+  }
+}
+
 function viewWeek() {
-  if (!state.pantry.length) return emptyPantry('Тыдзень');
-  const plan = currentPlan();
+  if (!hasStock(state)) return `<h1>Тыдзень</h1>${emptyStart()}`;
   const t = todayISO();
-  const rows = plan.days.map((day) => `
+  const rules = planRules(state, t);
+  const rows = Array.from({ length: 7 }, (_, i) => addDays(t, i)).map((date) => `
     <div class="week-row">
-      <div class="day">${WEEKDAY_SHORT[day.weekday]}<small>${shortDate(day.date)}</small></div>
+      <div class="day">${WEEKDAY_SHORT[weekdayOf(date)]}<small>${shortDate(date)}</small></div>
       ${MEALS.map((meal) => {
-        const m = day.meals[meal];
-        const key = `${day.date}:${meal}`;
-        let text = '—';
-        let cls = '';
-        if (m.mode === 'skip') { text = 'прапушчаны'; cls = 'skip'; }
-        else if (m.leftover) { text = `З сабой: ${m.dish.template.title.toLowerCase()}`; cls = 'take'; }
-        else if (m.dish) { text = (m.mode === 'take' ? 'З сабой: ' : '') + m.dish.template.title; cls = m.mode === 'take' ? 'take' : ''; }
-        if (day.date === t) cls += ' today';
-        return `<button class="cell ${cls}" data-action="cycle" data-key="${key}" data-mode="${m.mode}" aria-label="${MEAL_NAMES[meal]} ${shortDate(day.date)}: ${esc(text)}. Націсніце, каб змяніць.">${esc(text)}</button>`;
+        const key = keyOf(date, meal);
+        const [text, cls] = cellText(getSlot(state, key), dishAt(state, key));
+        return `<a class="cell ${cls}${date === t ? ' today' : ''}" href="#/slot/${key}" aria-label="${MEAL_NAMES[meal]} ${shortDate(date)}: ${esc(text)}">${esc(text)}</a>`;
       }).join('')}
     </div>`).join('');
 
-  const buy = [...new Set([...plan.buy, ...(state.wish ?? [])])].filter((id) => !state.pantry.includes(id));
-  const buyRows = buy.map((id) => {
-    const pr = lastPrice(state.lines, id);
-    return `<div><span>${esc(BY_ID[id].name)}</span><span>${pr ? `${zl(pr.price)}/${pr.unit} · ${esc(pr.store)}` : ''}</span></div>`;
-  }).join('');
-  const sum = buy.reduce((s, id) => s + (lastPrice(state.lines, id)?.price ?? 0), 0);
-
   return `
-    <div class="row"><h1>Тыдзень</h1><span class="sub">${shortDate(plan.days[0].date)} – ${shortDate(plan.days[6].date)}</span></div>
-    <div class="tags">${plan.rules.map((r) => `<span class="tag ${r.ok ? 'good' : 'warn'}">${esc(r.label)}: ${esc(r.value)}</span>`).join('')}</div>
+    <div class="row"><h1>Тыдзень</h1><span class="sub">${shortDate(t)} – ${shortDate(addDays(t, 6))}</span></div>
+    <div class="tags">${rules.map((r) => `<span class="tag ${r.ok ? 'good' : 'warn'}">${esc(r.label)}: ${esc(r.value)}</span>`).join('')}</div>
     <div class="week">
       <div class="week-row head"><div></div><div>Снядан.</div><div>Абед</div><div>Вячэра</div></div>
       ${rows}
     </div>
-    <p class="note">Націсніце на прыём ежы, каб змяніць: дома → з сабой → прапусціць.</p>
-    <div class="balance">
-      <h2>Дакупіць на тыдзень</h2>
-      ${buy.length ? `<div class="receipt">${buyRows}</div>${sum ? `<p class="small">Па цэнах з вашых чэкаў: каля ${zl(sum)}, астатняе ў вас ёсць.</p>` : ''}` : '<p class="small">Нічога: на тыдзень хапае таго, што ёсць.</p>'}
-      ${state.wish?.length ? '<button class="btn ghost" data-action="clear-wish">Ачысціць свой спіс</button>' : ''}
-    </div>`;
+    <p class="note">План захоўваецца. Націсніце на прыём, каб адзначыць, што з'елі, прапусцілі, замянілі іншым ці перанеслі.</p>
+    <div class="actions">
+      <a class="btn" href="#/list">Спіс пакупак</a>
+      <button class="btn ghost" data-action="rebuild">${ui.confirmRebuild ? 'Націсніце яшчэ раз: перабудаваць' : 'Перабудаваць астатняе'}</button>
+    </div>
+    <p class="note">«Перабудаваць» мяняе толькі незакранутыя прыёмы з сёння: адзначанае і перанесенае застаецца.</p>`;
 }
 
-function emptyPantry(title) {
-  return `<h1>${title}</h1><div class="empty"><p class="muted">Каб скласці план, дадайце, што ёсць дома.</p><a class="btn" href="#/add">Дадаць прадукты</a></div>`;
+function viewSlot(key) {
+  const { date, meal } = parseKey(key ?? '');
+  if (!date || !MEALS.includes(meal)) return viewWeek();
+  return `
+    <div class="back"><a class="round" href="#/week" aria-label="Назад">${ICON.back}</a>
+      <div><h1>${MEAL_NAMES[meal]}</h1><div class="sub">${longDate(date)}</div></div></div>
+    ${slotCard(key, { forceMore: true })}`;
+}
+
+function listRow(x, { manual = false } = {}) {
+  const label = manual ? x.text : x.name;
+  const pr = x.id ? lastPrice(state.lines, x.id) : null;
+  let why = '';
+  if (x.need) why = `для: ${slotName(keyOf(x.need.date, x.need.meal))}`;
+  else if (x.reminder) why = x.reminder.since == null ? `${x.reminder.label}: не было ў чэках` : `${x.reminder.label}: не куплялі ${daysWord(x.reminder.since)}`;
+  const price = pr ? `${zl(pr.price)}/${pr.unit} · ${pr.store}` : '';
+  return `<div class="listrow ${x.bought ? 'bought' : ''}">
+    <button class="tick" data-action="bought" data-key="${esc(x.key)}" aria-pressed="${x.bought}" aria-label="${esc(label)}: ${x.bought ? 'купіў' : 'не купіў'}">${x.bought ? ICON.check : ''}</button>
+    <div class="grow"><div>${esc(cap(label))}</div>${why || price ? `<div class="small muted">${esc([why, price].filter(Boolean).join(' · '))}</div>` : ''}</div>
+    ${manual ? `<button class="x" data-action="remove-manual" data-key="${esc(x.key)}" aria-label="Прыбраць ${esc(label)}">×</button>` : ''}
+  </div>`;
+}
+
+function viewList() {
+  const t = todayISO();
+  const list = buildList(state, t);
+  const any = list.plan.length + list.remind.length + list.manual.length;
+  const anyBought = [...list.plan, ...list.remind, ...list.manual].some((x) => x.bought);
+  return `
+    <div class="row"><h1>Спіс пакупак</h1>
+      <button class="round" data-action="share" aria-label="Падзяліцца спісам">${ICON.share}</button></div>
+    <div class="inline">
+      <label for="manual" class="sr">Дадаць свой пункт</label>
+      <input id="manual" class="input" placeholder="Дапісаць сваё: хлеб, кава…" enterkeyhint="done">
+      <button class="btn" data-action="add-manual">Дадаць</button>
+    </div>
+    ${list.plan.length ? `<div class="section"><h2>Для плана</h2><div class="card list">${list.plan.map((x) => listRow(x)).join('')}</div></div>` : ''}
+    ${list.remind.length ? `<div class="section"><h2>Даўно не куплялі</h2><div class="card list">${list.remind.map((x) => listRow(x)).join('')}</div></div>` : ''}
+    ${list.manual.length ? `<div class="section"><h2>Сваё</h2><div class="card list">${list.manual.map((x) => listRow(x, { manual: true })).join('')}</div></div>` : ''}
+    ${any ? '' : '<div class="empty"><p class="muted">Для плана на тыдзень, хутчэй за ўсё, усё ёсць. Можна дапісаць сваё.</p></div>'}
+    ${list.check.length ? `<div class="section"><h2>Правер дома</h2><p class="sub">Для сёння і заўтра, магчыма, ужо скончылася: ${esc(list.check.map((x) => x.name).join(', '))}.</p></div>` : ''}
+    ${anyBought ? '<button class="btn ghost" data-action="clear-bought">Прыбраць купленае</button>' : ''}
+    <p class="note">Спіс складаецца сам з плана тыдня і напамінаў. «Купіў» лічыцца пакупкай. Пакуль няма сервера, спіс жыве на гэтым тэлефоне, а «Падзяліцца» адпраўляе яго тэкстам у месенджар.</p>`;
 }
 
 function viewBasket() {
   if (!state.lines.length) {
     return `<h1>Ваш кошык</h1>
-      <div class="empty"><p class="muted">Загрузіце гісторыю пакупак у CSV, і тут з'явіцца, на што ідуць грошы, і тры змены з найбольшым эфектам.</p><a class="btn" href="#/add">Загрузіць чэкі</a>${demoButton()}</div>`;
+      <div class="empty"><p class="muted">Тут з'явіцца, на што ідуць грошы, і тры змены з найбольшым эфектам. Для аналізу патрэбныя чэкі: фота чэка будзе ў наступнай версіі.</p>${demoButton()}</div>`;
   }
   const st = basketStats(state.lines);
   const top = st.shares.slice(0, 11);
@@ -409,34 +512,50 @@ function viewBasket() {
     </div>
     <div class="section"><h2>Змены з найбольшым эфектам</h2>
       ${advice.map((a) => `<div class="card"><div class="title">${esc(a.title)}</div><div class="sub">${esc(a.why)}</div>
-        <div class="actions"><button class="btn ghost" data-action="wish-many" data-ids="${a.add.join(',')}">У спіс пакупак</button></div></div>`).join('') || '<p class="sub">Кошык выглядае збалансаваным.</p>'}
+        <div class="actions"><button class="btn ghost" data-action="wish" data-ids="${a.add.join(',')}">У спіс пакупак</button></div></div>`).join('') || '<p class="sub">Кошык выглядае збалансаваным.</p>'}
     </div>
-    <div class="card" style="border:1px dashed var(--mid);background:transparent"><div class="row"><span class="small">Скідкі тыдня ў Lidl, Бядронцы і Карфуры пад вашы замены</span><span class="small muted">хутка</span></div></div>`;
+    <div class="card" style="border:1px dashed var(--mid);background:transparent"><div class="row"><span class="small">Скідкі тыдня ў Lidl, Бядронцы і Карфуры пад вашы замены</span><span class="small muted">пазней</span></div></div>`;
 }
+
+const WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 function viewKitchen() {
   const s = state.settings;
-  const wds = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const grid = MEALS.map((meal) => `
     <div>${MEAL_NAMES[meal]}</div>
-    ${wds.map((wd) => {
-      const mode = s.schedule[wd]?.[meal] ?? 'home';
-      const label = { home: 'дома', take: 'з сабой', skip: 'не плануем' }[mode];
+    ${WEEK.map((wd) => {
+      const mode = s.schedule[wd]?.[meal] === 'skip' ? 'skip' : 'home';
+      const label = mode === 'home' ? 'плануем' : 'не плануем';
       return `<button class="slot ${mode}" data-action="sched" data-wd="${wd}" data-meal="${meal}" aria-label="${WEEKDAY_SHORT[wd]}, ${MEAL_NAMES[meal].toLowerCase()}: ${label}"></button>`;
     }).join('')}`).join('');
   const excluded = s.exclude.map((id) => BY_ID[id]?.name).filter(Boolean).join(', ');
+  const ms = members(s);
+  const memberCards = ms.map((m, i) => `
+    <div class="card">
+      <div class="inline">
+        <label class="sr" for="member-${i}">Імя</label>
+        <input id="member-${i}" class="input" value="${esc(m.name)}" data-member="${i}">
+        ${ms.length > 1 ? `<button class="btn ghost" data-action="remove-member" data-i="${i}" aria-label="Прыбраць ${esc(m.name)}">×</button>` : ''}
+      </div>
+      <div class="small muted">Абед з сабой</div>
+      <div class="pills">${WEEK.map((wd) => `<button class="pill" data-action="take" data-i="${i}" data-wd="${wd}" aria-pressed="${m.take?.includes(wd) ?? false}">${WEEKDAY_SHORT[wd]}</button>`).join('')}</div>
+    </div>`).join('');
 
   return `
     <h1>Кухня і графік</h1>
     <div class="section"><h2>Што ёсць дома</h2>
-      <div class="pills">${Object.entries(EQUIPMENT).map(([id, name]) => `<button class="pill" data-action="equip" data-id="${id}" aria-pressed="${s.equipment.includes(id)}">${name}</button>`).join('')}</div>
+      <div class="pills">${Object.entries(EQUIPMENT).map(([id, label]) => `<button class="pill" data-action="equip" data-id="${id}" aria-pressed="${s.equipment.includes(id)}">${label}</button>`).join('')}</div>
+    </div>
+    <div class="section"><h2>Сям'я · ${ms.length} ${plural(ms.length, 'чалавек', 'чалавекі', 'чалавек')}</h2>
+      <p class="note">Грамы ў рэцэптах лічацца на ўсіх. У дні «з сабой» абед складаецца з учорашняй вячэры, згатаванай з запасам.</p>
+      ${memberCards}
+      <button class="btn ghost" data-action="add-member">Дадаць удзельніка</button>
     </div>
     <div class="section"><h2>Звычайны тыдзень</h2>
-      <div class="grid-sched"><div></div>${wds.map((wd) => `<div class="h">${WEEKDAY_SHORT[wd]}</div>`).join('')}${grid}</div>
-      <div class="legend"><span><i style="background:var(--accent)"></i>дома</span><span><i style="background:var(--take)"></i>з сабой</span><span><i style="border:1px dashed var(--mid)"></i>не плануем</span></div>
+      <div class="grid-sched"><div></div>${WEEK.map((wd) => `<div class="h">${WEEKDAY_SHORT[wd]}</div>`).join('')}${grid}</div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>плануем</span><span><i style="border:1px dashed var(--mid)"></i>не плануем</span></div>
     </div>
     <div class="two">
-      <div class="field"><label for="k-people">Колькі чалавек</label><input id="k-people" type="number" min="1" max="12" value="${s.people}" data-setting="people"></div>
       <div class="field"><label for="k-evening">Будні вечар, хв</label><input id="k-evening" type="number" min="5" max="180" step="5" value="${s.eveningMinutes}" data-setting="eveningMinutes"></div>
       <div class="field"><label for="k-weekend">Выхадныя, хв</label><input id="k-weekend" type="number" min="5" max="240" step="5" value="${s.weekendMinutes}" data-setting="weekendMinutes"></div>
       <div class="field"><label for="k-breakfast">Сняданак, хв</label><input id="k-breakfast" type="number" min="3" max="60" step="1" value="${s.breakfastMinutes}" data-setting="breakfastMinutes"></div>
@@ -446,150 +565,204 @@ function viewKitchen() {
       <input id="k-exclude" class="input" placeholder="напрыклад: грыбы, печань" value="${esc(excluded)}">
       <button class="btn ghost" data-action="save-exclude">Захаваць</button>
     </div>
+    <p class="note">Змены тут перабудоўваюць план з заўтрашняга дня; сённяшнія прыёмы і вашы адзнакі застаюцца.</p>
     <div class="section">
       <h2>Дадзеныя</h2>
-      <p class="note">${receiptCount(state.lines)} чэкаў, ${state.pantry.length} складнікаў у запасах, ${state.cooked.length} прыгатаваных страў. Усё ляжыць толькі ў гэтым браўзеры.</p>
+      <p class="note">${receiptCount(state.lines)} чэкаў, ${Object.keys(stock).length} прадуктаў у гісторыі пакупак, ${state.cooked.length} з'едзеных страў. Усё ляжыць толькі ў гэтым браўзеры.</p>
       <button class="btn ghost" data-action="reset">${ui.confirmReset ? 'Націсніце яшчэ раз, каб выдаліць усё' : 'Выдаліць усе дадзеныя'}</button>
     </div>`;
 }
 
 // ── Маршрутызацыя і падзеі ──
 
-const ROUTES = { '': viewToday, now: viewNow, add: viewAdd, week: viewWeek, basket: viewBasket, kitchen: viewKitchen };
+const ROUTES = { '': viewToday, now: viewNow, add: viewAdd, week: viewWeek, slot: viewSlot, list: viewList, basket: viewBasket, kitchen: viewKitchen };
 const NAV = [
-  { r: '', label: 'Сёння', icon: ICON.today },
-  { r: 'week', label: 'Тыдзень', icon: ICON.week },
-  { r: 'basket', label: 'Кошык', icon: ICON.basket },
-  { r: 'kitchen', label: 'Кухня', icon: ICON.kitchen },
+  { r: '', label: 'Сёння', icon: ICON.today, also: ['now', 'add'] },
+  { r: 'week', label: 'Тыдзень', icon: ICON.week, also: ['slot'] },
+  { r: 'list', label: 'Спіс', icon: ICON.list, also: [] },
+  { r: 'basket', label: 'Кошык', icon: ICON.basket, also: [] },
+  { r: 'kitchen', label: 'Кухня', icon: ICON.kitchen, also: [] },
 ];
+const TITLES = { '': 'Talerka', now: 'Зараз', add: 'Дадаць', week: 'Тыдзень', slot: 'Прыём ежы', list: 'Спіс пакупак', basket: 'Кошык', kitchen: 'Кухня' };
 
 function route() {
-  return (location.hash.replace(/^#\/?/, '').split('?')[0] || '');
+  const [r, param] = location.hash.replace(/^#\/?/, '').split('?')[0].split('/');
+  return { r: r || '', param: param ? decodeURIComponent(param) : null };
 }
 
 function render() {
-  const r = route();
+  const t = todayISO();
+  if (ensurePlan(state, t)) save();
+  stock = stockOn(state, t);
+  const { r, param } = route();
   const view = ROUTES[r] ?? viewToday;
-  main.innerHTML = view();
-  nav.innerHTML = NAV.map((n) => `<a href="#/${n.r}" ${n.r === r || (r === 'now' && n.r === '') || (r === 'add' && n.r === '') ? 'aria-current="page"' : ''}>${n.icon}${n.label}</a>`).join('');
-  document.title = { '': 'Talerka', now: 'Talerka · Зараз', add: 'Talerka · Дадаць', week: 'Talerka · Тыдзень', basket: 'Talerka · Кошык', kitchen: 'Talerka · Кухня' }[r] ?? 'Talerka';
+  main.innerHTML = view(param);
+  nav.innerHTML = NAV.map((n) => `<a href="#/${n.r}" ${n.r === r || n.also.includes(r) ? 'aria-current="page"' : ''}>${n.icon}${n.label}</a>`).join('');
+  document.title = r ? `Talerka · ${TITLES[r] ?? ''}` : 'Talerka';
 }
 
-function addToPantry(ids) {
-  const set = new Set(state.pantry);
-  ids.forEach((id) => set.add(id));
-  state.pantry = [...set];
-}
-
-function cycleMode(mode) {
-  return { home: 'take', take: 'skip', skip: 'home' }[mode] ?? 'home';
+// Налады змяніліся — перабудоўваем план з заўтра.
+function settingsChanged() {
+  const t = todayISO();
+  rebuildFrom(state, addDays(t, 1), t);
+  save();
 }
 
 const actions = {
   minutes(el) {
-    const v = el.dataset.v === 'batch' ? 'batch' : Number(el.dataset.v);
-    state.dayMinutes = { [todayISO()]: v };
+    const t = todayISO();
+    state.dayMinutes = { [t]: el.dataset.v === 'batch' ? 'batch' : Number(el.dataset.v) };
+    // Час на сёння — змена карыстальніка: абед і вячэра сёння падбіраюцца нанова, калі іх яшчэ не чапалі.
+    const keys = ['lunch', 'dinner'].map((m) => keyOf(t, m)).filter((k) => {
+      const s = getSlot(state, k);
+      return s && ['planned', 'empty'].includes(s.state) && !s.movedFrom && !s.leftoverOf;
+    });
+    if (keys.length) refill(state, keys, t);
     save();
   },
-  mode(el) {
-    state.overrides[el.dataset.key] = el.dataset.mode;
+  more(el) { ui.more = ui.more === el.dataset.key ? null : el.dataset.key; },
+  eaten(el) {
+    const d = markEaten(state, el.dataset.key);
     save();
+    if (d) toast(`Смачна! «${d.template.title}» адзначана`);
   },
-  cycle(el) {
-    state.overrides[el.dataset.key] = cycleMode(el.dataset.mode);
+  skip(el) { markSkipped(state, el.dataset.key, todayISO()); ui.more = null; save(); },
+  replace(el) { markReplaced(state, el.dataset.key, el.dataset.by, todayISO()); ui.more = null; save(); },
+  unmark(el) { unmark(state, el.dataset.key); save(); },
+  move(el) {
+    const to = document.getElementById(`move-${el.dataset.key}`)?.value;
+    if (to && moveMeal(state, el.dataset.key, to, todayISO())) {
+      ui.more = null;
+      save();
+      toast(`Перанесена: ${slotName(to)}`);
+    }
+  },
+  reroll(el) { reroll(state, el.dataset.key, todayISO()); save(); },
+  rebuild() {
+    if (!ui.confirmRebuild) { ui.confirmRebuild = true; return; }
+    ui.confirmRebuild = false;
+    const t = todayISO();
+    rebuildFrom(state, t, t);
     save();
+    toast('Незакранутыя прыёмы перабудаваны');
   },
-  cooked(el) {
-    const meal = el.dataset.meal;
-    const d = currentPlan().days[0].meals[meal]?.dish;
-    if (d) recordCooked(d, meal);
+  'not-home'(el) {
+    markNotHome(state, el.dataset.id, todayISO());
+    save();
+    toast(`Зразумела: ${name(el.dataset.id)} няма. Калі трэба для плана — ужо ў спісе пакупак.`);
+  },
+  have(el) {
+    addPurchase(state, el.dataset.id, todayISO(), 'list');
+    save();
   },
   'cook-now'(el) {
     const meal = el.dataset.meal;
     const d = (ui.lastNow ?? []).find((x) => x.template.id === el.dataset.tpl) ?? null;
-    if (d) {
-      recordCooked(d, meal);
-      location.hash = '#/';
-    }
+    if (!d) return;
+    const t = todayISO();
+    const key = keyOf(t, meal);
+    setDish(state, key, d, t);
+    markEaten(state, key);
+    save();
+    toast(`Смачна! «${d.template.title}» адзначана`);
+    location.hash = '#/';
   },
   'now-meal'(el) { ui.nowMeal = el.dataset.meal; },
-  'add-tab'(el) { ui.addTab = el.dataset.tab; ui.preview = null; },
   'parse-list'() {
-    const text = document.getElementById('typed-list').value;
-    const r = parseTypedList(text);
-    ui.preview = { heading: 'Спіс', ids: r.ids, unknown: r.unknown };
-  },
-  'parse-receipt'() {
-    const text = document.getElementById('receipt-text').value;
-    const r = parseReceiptText(text);
-    ui.preview = { heading: 'Чэк', ids: r.ids, unknown: r.unknown, source: Object.fromEntries(r.matched.map((m) => [m.id, m.line])) };
+    ui.listText = document.getElementById('typed-list').value;
+    const r = parseTypedList(ui.listText);
+    ui.preview = { ids: r.ids, unknown: r.unknown };
   },
   'apply-preview'() {
     const pv = ui.preview;
     if (!pv) return;
-    addToPantry(pv.ids);
-    if (pv.lines) {
-      const seen = new Set(state.lines.map((l) => `${l.date}|${l.store}|${l.item}|${l.paid}`));
-      state.lines = [...state.lines, ...pv.lines.filter((l) => !seen.has(`${l.date}|${l.store}|${l.item}|${l.paid}`))];
-    }
+    const t = todayISO();
+    pv.ids.forEach((id) => addPurchase(state, id, t, 'list'));
     ui.preview = null;
+    ui.listText = '';
     save();
-    toast(`Дададзена: ${pv.ids.length} складнікаў${pv.lines ? `, ${receiptCount(pv.lines)} чэкаў у гісторыю` : ''}`);
+    toast(`Дададзена: ${pv.ids.length}. Каб план іх улічыў, на «Тыдні» ёсць «Перабудаваць астатняе».`);
   },
   'load-demo'() {
     const lines = demoLines(todayISO());
-    const ids = latestReceiptIds(lines);
-    state.demoPantry = ids.filter((id) => !state.pantry.includes(id));
-    addToPantry(ids);
     state.lines = [...state.lines.filter((l) => l.store !== DEMO_STORE), ...lines];
     save();
-    toast(`Дэма: ${ids.length} складнікаў дома, ${receiptCount(lines)} чэкаў у гісторыі`);
+    toast(`Дэма: ${receiptCount(lines)} чэкаў у гісторыі`);
   },
   'clear-demo'() {
-    const demo = new Set(state.demoPantry ?? []);
-    state.pantry = state.pantry.filter((id) => !demo.has(id));
     state.lines = state.lines.filter((l) => l.store !== DEMO_STORE);
-    state.demoPantry = [];
+    // План з дэма-прадуктаў больш не адпавядае пакупкам: незакранутыя прыёмы складаюцца нанова.
+    const t = todayISO();
+    if (hasStock(state)) rebuildFrom(state, t, t);
+    else state.plan = {};
     save();
     toast('Дэма прыбрана');
   },
-  remove(el) {
-    state.pantry = state.pantry.filter((id) => id !== el.dataset.id);
-    save();
-  },
-  'clear-pantry'() {
-    state.pantry = [];
-    save();
-  },
   wish(el) {
-    state.wish = [...new Set([...(state.wish ?? []), el.dataset.id])];
+    const added = el.dataset.ids.split(',').filter((id) => addManual(state, '', id)).length;
     save();
-    toast('Дададзена ў спіс пакупак на тыдзень');
+    toast(added ? 'Дададзена ў спіс пакупак' : 'Ужо ёсць у спісе пакупак');
   },
-  'wish-many'(el) {
-    state.wish = [...new Set([...(state.wish ?? []), ...el.dataset.ids.split(',')])];
+  bought(el) { toggleBought(state, el.dataset.key, todayISO()); save(); },
+  'add-manual'() {
+    const input = document.getElementById('manual');
+    const parts = input.value.split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean);
+    parts.forEach((p) => addManual(state, p));
     save();
-    toast('Дададзена ў спіс пакупак на тыдзень');
   },
-  'clear-wish'() { state.wish = []; save(); },
+  'remove-manual'(el) { removeManual(state, el.dataset.key); save(); },
+  'clear-bought'() { clearBought(state); save(); },
+  async share() {
+    const text = shareText(buildList(state, todayISO()));
+    if (!text) { toast('Спіс пусты'); return; }
+    try {
+      if (navigator.share) await navigator.share({ text });
+      else { await navigator.clipboard.writeText(text); toast('Спіс скапіяваны: устаўце ў месенджар'); }
+    } catch (e) {
+      if (e?.name !== 'AbortError') toast('Не атрымалася падзяліцца');
+    }
+  },
+  snooze(el) {
+    const t = todayISO();
+    el.dataset.groups.split(',').forEach((g) => snooze(state, g, t));
+    save();
+  },
   equip(el) {
     const id = el.dataset.id;
     const eq = new Set(state.settings.equipment);
     eq.has(id) ? eq.delete(id) : eq.add(id);
     state.settings.equipment = [...eq];
-    save();
+    settingsChanged();
   },
   sched(el) {
     const { wd, meal } = el.dataset;
     const day = { ...(state.settings.schedule[wd] ?? {}) };
-    day[meal] = cycleMode(day[meal] ?? 'home');
+    day[meal] = day[meal] === 'skip' ? 'home' : 'skip';
     state.settings.schedule = { ...state.settings.schedule, [wd]: day };
-    save();
+    settingsChanged();
+  },
+  take(el) {
+    const m = members(state.settings)[Number(el.dataset.i)];
+    if (!m) return;
+    const take = new Set(m.take ?? []);
+    take.has(el.dataset.wd) ? take.delete(el.dataset.wd) : take.add(el.dataset.wd);
+    m.take = WEEK.filter((wd) => take.has(wd));
+    state.settings.members = members(state.settings);
+    settingsChanged();
+  },
+  'add-member'() {
+    const ms = members(state.settings);
+    state.settings.members = [...ms, { name: `Дарослы ${ms.length + 1}`, take: [] }];
+    settingsChanged();
+  },
+  'remove-member'(el) {
+    state.settings.members = members(state.settings).filter((_, i) => i !== Number(el.dataset.i));
+    settingsChanged();
   },
   'save-exclude'() {
     const { ids, unknown } = parseTypedList(document.getElementById('k-exclude').value);
     state.settings.exclude = ids;
-    save();
+    settingsChanged();
     toast(unknown.length ? `Не пазнаў: ${unknown.join(', ')}` : 'Захавана');
   },
   reset() {
@@ -601,23 +774,24 @@ const actions = {
   },
 };
 
-function recordCooked(d, meal) {
-  state.cooked.push({
-    date: todayISO(), meal, templateId: d.template.id,
-    fish: d.fish, legume: d.legume, redMeat: d.redMeat, plants: [...d.plants],
-  });
-  state.cooked = state.cooked.slice(-200);
-  save();
-  toast(`Смачна! «${d.template.title}» запісана`);
-}
-
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || !actions[el.dataset.action]) return;
   e.preventDefault();
   if (el.dataset.action !== 'reset') ui.confirmReset = false;
-  actions[el.dataset.action](el);
+  if (el.dataset.action !== 'rebuild') ui.confirmRebuild = false;
+  await actions[el.dataset.action](el);
   render();
+});
+
+// Enter у полі свайго пункта дадае яго.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'manual') {
+    e.preventDefault();
+    actions['add-manual']();
+    render();
+    document.getElementById('manual')?.focus();
+  }
 });
 
 // Адкрытыя рэцэпты застаюцца адкрытымі пасля перамалёўкі.
@@ -626,37 +800,27 @@ document.addEventListener('toggle', (e) => {
   if (el.matches?.('details.recipe')) el.open ? ui.open.add(el.dataset.key) : ui.open.delete(el.dataset.key);
 }, true);
 
-document.addEventListener('change', async (e) => {
+document.addEventListener('change', (e) => {
   const el = e.target;
-  if (el.id === 'csv-file' && el.files?.[0]) {
-    const text = await el.files[0].text();
-    const lines = linesFromCSV(text);
-    if (!lines.length) {
-      toast('У файле не знайшоў радкоў чэка. Патрэбныя слупкі store, date, item_pl, qty, unit, paid_pln.');
-      return;
-    }
-    const ids = latestReceiptIds(lines);
-    const last = lines.reduce((m, l) => (l.date > m ? l.date : m), '');
-    const unknown = [...new Set(lines.filter((l) => l.date === last && !l.productId && l.category !== 'non_food').map((l) => l.item))];
-    ui.preview = {
-      heading: `${receiptCount(lines)} чэкаў · апошні ${shortDate(last)}`,
-      extra: 'У запасы ідзе толькі апошні чэк, бо старэйшае ўжо, хутчэй за ўсё, з’едзена. Уся гісторыя пойдзе ў аналіз кошыка.',
-      ids, unknown, lines,
-      source: Object.fromEntries(lines.filter((l) => l.date === last && l.productId).map((l) => [l.productId, l.item])),
-    };
-    render();
-  }
   if (el.dataset.setting) {
     const v = Number(el.value);
     if (Number.isFinite(v) && v > 0) {
       state.settings[el.dataset.setting] = v;
+      settingsChanged();
+    }
+  }
+  if (el.dataset.member != null) {
+    const m = members(state.settings)[Number(el.dataset.member)];
+    if (m && el.value.trim()) {
+      m.name = el.value.trim();
+      state.settings.members = members(state.settings);
       save();
     }
   }
 });
 
-window.addEventListener('hashchange', () => { ui.preview = null; render(); window.scrollTo(0, 0); });
+window.addEventListener('hashchange', () => { ui.preview = null; ui.more = null; render(); window.scrollTo(0, 0); });
 render();
 
 // Дапаможная інфармацыя для распрацоўкі ў кансолі.
-window.talerka = { get state() { return state; }, PRODUCTS, BY_TEMPLATE };
+window.talerka = { get state() { return state; }, PRODUCTS, GROUPS, BY_TEMPLATE };

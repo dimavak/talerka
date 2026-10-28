@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { matchReceiptName, matchTypedName, PRODUCTS, BY_ID } from '../js/products.js';
 import { TEMPLATES } from '../js/templates.js';
-import { suggestNow, planWeek, usableMethods } from '../js/engine.js';
+import { suggestNow, usableMethods } from '../js/engine.js';
 import { demoLines, DEMO_STORE } from '../js/demo.js';
 import { linesFromCSV, parseTypedList, parseReceiptText, basketStats, basketAdvice, latestReceiptIds } from '../js/receipt.js';
 
@@ -78,28 +78,6 @@ test('выключаныя прадукты не трапляюць у стра�
   const pantry = ['salmon', 'mackerel', 'pepper', 'zucchini', 'eggs', 'tomato'];
   const { ready } = suggestNow({ pantry, settings: { ...KITCHEN, exclude: ['salmon'] }, meal: 'dinner', limit: 30 });
   for (const d of ready) assert.ok(!d.chosen.some((c) => c.ids.includes('salmon')));
-});
-
-test('план тыдня паважае графік і абеды з сабой', () => {
-  const schedule = {};
-  for (const wd of ['mon', 'tue', 'wed', 'thu', 'fri']) schedule[wd] = { breakfast: 'home', lunch: 'take', dinner: 'home' };
-  schedule.sat = { breakfast: 'home', lunch: 'home', dinner: 'home' };
-  schedule.sun = { breakfast: 'home', lunch: 'skip', dinner: 'home' };
-  const pantry = ['salmon', 'pepper', 'tortilla', 'hummus', 'rocket', 'cottage', 'blueberries', 'eggs', 'tomato', 'chicken_breast', 'buckwheat', 'cucumber', 'oats', 'milk', 'banana'];
-  const plan = planWeek({ pantry, settings: { ...KITCHEN, schedule }, start: '2026-10-26' });
-  assert.equal(plan.days.length, 7);
-  const sunday = plan.days.find((d) => d.weekday === 'sun');
-  assert.equal(sunday.meals.lunch.mode, 'skip');
-  for (const day of plan.days) {
-    const l = day.meals.lunch;
-    if (l.mode === 'take' && l.dish) assert.ok(l.dish.template.portable, day.date);
-  }
-  const fish = plan.rules.find((r) => r.id === 'fish');
-  assert.ok(fish.ok, `рыба: ${fish.value}`);
-  // Кожная страва — максімум адна дакупка, і ўсе дакупкі ёсць у спісе.
-  for (const day of plan.days) for (const m of Object.values(day.meals)) {
-    for (const miss of m.dish?.missing ?? []) assert.ok(plan.buy.includes(miss.ids[0]));
-  }
 });
 
 test('аналіз кошыка па CSV', () => {

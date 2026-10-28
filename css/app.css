@@ -181,3 +181,33 @@ nav.tabsbar a[aria-current="page"] { color: var(--accent); font-weight: 600; }
 @media (prefers-reduced-motion: no-preference) {
   .card, .upgrade { transition: box-shadow .15s ease; }
 }
+
+/* R1: прыёмы ежы з адзнакамі, спіс пакупак, сям'я */
+.card.quiet { gap: 6px; }
+.card.quiet .title { color: var(--muted); }
+.eyebrow .tag svg { vertical-align: -3px; }
+.checkline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.checkline .chip, .chips .chip { font-size: 13px; }
+.chip button { min-width: 28px; width: auto; padding: 0 8px; border-radius: 999px; font-size: 12px; }
+.more { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.inline { display: flex; gap: 8px; align-items: center; }
+.inline .input { flex: 1; min-width: 0; min-height: 44px; }
+select.input { appearance: auto; }
+details.recipe .grams { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+details.recipe .grams li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dotted var(--line); padding-bottom: 3px; }
+details.recipe .grams li span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.upgrade.remind .btn.ghost { background: transparent; color: var(--ink); }
+a.cell { text-decoration: none; color: inherit; display: block; }
+.cell.done { color: var(--accent); }
+.card.list { padding: 4px 14px; gap: 0; }
+.listrow { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.listrow:first-child { border-top: none; }
+.listrow .grow { flex: 1; min-width: 0; }
+.listrow.bought .grow > div:first-child { text-decoration: line-through; color: var(--muted); }
+.tick { width: 30px; height: 30px; flex: none; border-radius: 9px; border: 2px solid var(--mid); background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.tick[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.listrow .x { width: 36px; height: 36px; border: none; background: transparent; color: var(--muted); font-size: 20px; cursor: pointer; border-radius: 50%; }
+.tabs.two-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+nav.tabsbar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+nav.tabsbar a { font-size: 11.5px; }

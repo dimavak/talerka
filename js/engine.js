@@ -27,12 +27,15 @@ export function usableMethods(template, equipment, limit) {
 
 // Падстаўляе складнікі з запасаў у слоты шаблона.
 // have — Set з id складнікаў, якія ёсць (запасы плюс ужо запланаваныя дакупкі).
-export function fillTemplate(template, have, exclude = []) {
+// maybe — тыя з have, што, магчыма, ужо скончыліся: бяруцца толькі калі няма надзейнейшых.
+export function fillTemplate(template, have, exclude = [], maybe = null) {
   const chosen = [];
   const missing = [];
   for (const slot of template.slots) {
     const opts = slot.opts.filter((id) => !exclude.includes(id));
-    const ids = opts.filter((id) => have.has(id)).slice(0, slot.pick || 1);
+    let avail = opts.filter((id) => have.has(id));
+    if (maybe) avail = [...avail.filter((id) => !maybe.has(id)), ...avail.filter((id) => maybe.has(id))];
+    const ids = avail.slice(0, slot.pick || 1);
     if (ids.length) chosen.push({ slot, ids });
     else if (slot.req) {
       // Калі ўсе варыянты слота выключаныя, страва для гэтай сям'і немагчымая.
@@ -84,10 +87,10 @@ export function nutrition(filled) {
 }
 
 // Адна страва: шаблон + спосаб + складнікі + харчовыя лічбы.
-export function buildDish(template, have, settings, limit) {
+export function buildDish(template, have, settings, limit, maybe = null) {
   const methods = usableMethods(template, settings.equipment, limit);
   if (!methods.length) return null;
-  const filled = fillTemplate(template, have, settings.exclude || []);
+  const filled = fillTemplate(template, have, settings.exclude || [], maybe);
   if (!filled) return null;
   const n = nutrition(filled);
   return {
@@ -95,6 +98,7 @@ export function buildDish(template, have, settings, limit) {
     method: methods[0],
     chosen: filled.chosen,
     missing: filled.missing,
+    check: maybe ? filled.chosen.flatMap((c) => c.ids).filter((id) => maybe.has(id)) : [],
     ...n,
   };
 }
@@ -117,6 +121,8 @@ export function scoreDish(dish, ctx = {}) {
   // Страва, задуманая менавіта для гэтага прыёму ежы, крыху важнейшая за запасны варыянт.
   if (ctx.meal && dish.template.meal[0] === ctx.meal) s += 0.75;
   s -= dish.missing.length * 2.5;
+  // «Правер, ці ёсць» — горш за тое, што амаль напэўна дома, але лепш за дакупку.
+  s -= (dish.check?.length ?? 0) * 0.6;
   // Тры тартылі за дзень — не разнастайнасць: асноўныя складнікі за сёння штрафуюцца.
   if (ctx.dayIds) s -= mainIds(dish).filter((id) => ctx.dayIds.has(id)).length * 1.2;
   return s;
@@ -132,10 +138,10 @@ export function dishLabel(dish) {
 }
 
 // Рэжым «зараз»: тры стравы з таго, што ёсць, і адна прапанова «дакупі адно».
-export function suggestNow({ pantry, settings, meal, limit, ctx = {} }) {
+export function suggestNow({ pantry, settings, meal, limit, ctx = {}, maybe = null }) {
   const have = new Set(pantry);
   const all = TEMPLATES.filter((t) => t.meal.includes(meal))
-    .map((t) => buildDish(t, have, settings, limit))
+    .map((t) => buildDish(t, have, settings, limit, maybe))
     .filter(Boolean)
     .map((d) => ({ ...d, score: scoreDish(d, { ...ctx, meal }) }));
 
@@ -207,11 +213,11 @@ export function timeLimit(settings, weekday, meal) {
   return weekend ? settings.weekendMinutes ?? 60 : settings.eveningMinutes ?? 30;
 }
 
-function emptyCtx() {
-  return { fish: 0, legume: 0, redMeat: 0, plants: new Set(), uses: {}, lastId: null };
+export function emptyCtx() {
+  return { fish: 0, legume: 0, redMeat: 0, plants: new Set(), uses: {}, lastId: null, dayIds: new Set() };
 }
 
-function addToCtx(ctx, dish) {
+export function addToCtx(ctx, dish) {
   if (ctx.dayIds) mainIds(dish).forEach((id) => ctx.dayIds.add(id));
   if (dish.fish) ctx.fish++;
   if (dish.legume) ctx.legume++;
@@ -221,58 +227,15 @@ function addToCtx(ctx, dish) {
   ctx.lastId = dish.template.id;
 }
 
-// Складае план на 7 дзён. Кожная страва можа патрабаваць адну дакупку; купленае далей лічыцца даступным.
-// schedule[weekday][meal] = 'home' | 'take' | 'skip'. overrides — ручныя змены па днях ('YYYY-MM-DD:meal').
-export function planWeek({ pantry, settings, start, overrides = {} }) {
-  const have = new Set(pantry);
-  const buy = new Map();
-  const ctx = emptyCtx();
-  const days = [];
-  let prevDinner = null;
-
-  for (let i = 0; i < 7; i++) {
-    const date = addDays(start, i);
-    const wd = weekdayOf(date);
-    const day = { date, weekday: wd, meals: {} };
-    const yesterdayDinner = prevDinner;
-    prevDinner = null;
-    ctx.dayIds = new Set();
-    for (const meal of MEALS) {
-      const mode = overrides[`${date}:${meal}`] ?? settings.schedule?.[wd]?.[meal] ?? 'home';
-      if (mode === 'skip') {
-        day.meals[meal] = { mode };
-        continue;
-      }
-      // Абед з сабой: калі ўчорашняя вячэра трывае кантэйнер — гатуем яе ўдвая.
-      if (meal === 'lunch' && mode === 'take' && yesterdayDinner?.template.portable) {
-        day.meals[meal] = { mode, dish: yesterdayDinner, leftover: true };
-        addToCtx(ctx, yesterdayDinner);
-        yesterdayDinner.cookDouble = true;
-        continue;
-      }
-      const limit = mode === 'take' ? null : timeLimit(settings, wd, meal);
-      const candidates = TEMPLATES.filter((t) => t.meal.includes(meal) && (mode !== 'take' || t.portable))
-        .map((t) => buildDish(t, have, settings, limit))
-        .filter((d) => d && d.missing.length <= 1)
-        .map((d) => ({ ...d, score: scoreDish(d, { ...ctx, meal }) }))
-        .sort((a, b) => b.score - a.score);
-      const dish = candidates[0];
-      if (!dish) {
-        day.meals[meal] = { mode, dish: null };
-        continue;
-      }
-      for (const m of dish.missing) {
-        const id = m.ids[0];
-        have.add(id);
-        buy.set(id, (buy.get(id) ?? 0) + 1);
-      }
-      day.meals[meal] = { mode, dish };
-      addToCtx(ctx, dish);
-      if (meal === 'dinner') prevDinner = dish;
-    }
-    days.push(day);
-  }
-  return { start, days, buy: [...buy.keys()], rules: checkRules(days) };
+// Найлепшая страва для аднаго прыёму: максімум адна дакупка, «з сабой» — толькі тое, што трывае кантэйнер.
+// avoid — шаблоны, ад якіх карыстальнік ужо адмовіўся ў гэтым слоце.
+export function pickDish({ meal, mode, have, maybe = null, settings, limit, ctx, avoid = new Set() }) {
+  const candidates = TEMPLATES.filter((t) => t.meal.includes(meal) && (mode !== 'take' || t.portable) && !avoid.has(t.id))
+    .map((t) => buildDish(t, have, settings, limit, maybe))
+    .filter((d) => d && d.missing.length <= 1)
+    .map((d) => ({ ...d, score: scoreDish(d, { ...ctx, meal }) }))
+    .sort((a, b) => b.score - a.score);
+  return candidates[0] ?? null;
 }
 
 // П1–П7 для тыдня. Вяртае спіс правіл з фактам, мэтай і ці выканана.
