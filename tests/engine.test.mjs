@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { matchReceiptName, matchTypedName, PRODUCTS, BY_ID } from '../js/products.js';
 import { TEMPLATES } from '../js/templates.js';
 import { suggestNow, planWeek, usableMethods } from '../js/engine.js';
+import { demoLines, DEMO_STORE } from '../js/demo.js';
 import { linesFromCSV, parseTypedList, parseReceiptText, basketStats, basketAdvice, latestReceiptIds } from '../js/receipt.js';
 
 const KITCHEN = { equipment: ['stove', 'oven', 'microwave'], exclude: [] };
@@ -26,6 +27,9 @@ test('польскія назвы з чэка распазнаюцца', () => {
     'Tortilla pełnoziar.': 'tortilla',
     'Kasza gryczana XXL': 'buckwheat',
     'Jaja ściółkowe L': 'eggs',
+    'Szprot w sosie pomid': 'sprats',
+    'Filet z piersi kurcz.': 'chicken_breast',
+    'Gruszki deserowe': 'pear',
   };
   for (const [name, id] of Object.entries(cases)) assert.equal(matchReceiptName(name)?.id, id, name);
 });
@@ -126,4 +130,20 @@ test('тэкст чэка: службовыя радкі і цэны адкід�
   const text = 'PARAGON FISKALNY\nMSC Łosoś tusza 0,776 x29,90 23,20C\nOPUST Hummus 160g -0,90\nHummus 160g 1 x4,19 4,19C\nKinder Mlecz.Kanapka 3 x5,69 17,07C\nSUMA PLN 191,42';
   const { ids } = parseReceiptText(text);
   assert.deepEqual(ids.sort(), ['hummus', 'salmon']);
+});
+
+test('дэма-чэкі: апошні ўчора, усё распазнаецца, ёсць стравы і парады', () => {
+  const lines = demoLines('2026-10-28');
+  assert.ok(lines.every((l) => l.store === DEMO_STORE));
+  assert.equal(new Set(lines.map((l) => l.date)).size, 8);
+  assert.equal(lines.reduce((m, l) => (l.date > m ? l.date : m), ''), '2026-10-27');
+  const unknownFood = lines.filter((l) => !l.productId && !['non_food', 'sweets', 'snacks', 'drinks_sugary', 'sauce', 'refined_grain'].includes(l.category));
+  assert.deepEqual(unknownFood.map((l) => l.item), []);
+  const pantry = latestReceiptIds(lines);
+  assert.ok(pantry.length >= 15, `запасаў ${pantry.length}`);
+  for (const meal of ['breakfast', 'lunch', 'dinner']) {
+    const r = suggestNow({ pantry, settings: KITCHEN, meal, limit: 30 });
+    assert.ok(r.ready.length >= 2, meal);
+  }
+  assert.ok(basketAdvice(lines).length >= 2);
 });

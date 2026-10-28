@@ -10,6 +10,7 @@ import {
   latestReceiptIds, basketStats, basketAdvice, lastPrice, receiptCount,
 } from './receipt.js';
 import { loadState, saveState, defaultState } from './store.js';
+import { DEMO_STORE, demoLines } from './demo.js';
 
 let state = loadState();
 const ui = { addTab: 'receipt', preview: null, nowMeal: null, lastNow: null, open: new Set(), confirmReset: false };
@@ -156,6 +157,7 @@ function viewToday() {
         <h1>Пачнём з таго, што ў вас ёсць</h1>
         <p class="muted">Дадайце чэк з крамы або проста напішыце, што ляжыць дома. Talerka падбярэ простыя здаровыя стравы на сняданак, абед і вячэру.</p>
         <a class="btn" href="#/add">Дадаць прадукты</a>
+        ${demoButton()}
       </div>
       ${kitchenHint()}`;
   }
@@ -221,6 +223,24 @@ function viewToday() {
         <div class="stat ${r.fiber.ok ? '' : 'low'}"><b>${r.fiber.value.replace(' г/дзень', ' г')}</b><span>валакно ў дзень</span></div>
       </div>
     </div>`;
+}
+
+function hasDemo() {
+  return state.lines.some((l) => l.store === DEMO_STORE);
+}
+
+function demoButton() {
+  return hasDemo() ? '' : '<button class="btn ghost" data-action="load-demo">Паспрабаваць на дэма-чэках</button>';
+}
+
+function demoSection() {
+  const text = hasDemo()
+    ? 'Загружаны дэма-чэкі. Калі дадасце свае, дэма можна прыбраць.'
+    : 'Каб паспрабаваць аплікацыю без сваіх чэкаў, загрузіце восем выдуманых чэкаў тыповай сям’і за месяц.';
+  const btn = hasDemo()
+    ? '<button class="btn ghost" data-action="clear-demo">Прыбраць дэма</button>'
+    : '<button class="btn ghost" data-action="load-demo">Загрузіць дэма-чэкі</button>';
+  return `<div class="section"><h2>Дэма</h2><p class="sub">${text}</p>${btn}</div>`;
 }
 
 function kitchenHint() {
@@ -317,6 +337,7 @@ function viewAdd() {
     ${body}
     ${preview}
     <div class="section"><h2>Запасы дома</h2>${pantry}</div>
+    ${demoSection()}
     <p class="note">Усё захоўваецца толькі ў гэтым браўзеры на вашай прыладзе.</p>`;
 }
 
@@ -369,7 +390,7 @@ function emptyPantry(title) {
 function viewBasket() {
   if (!state.lines.length) {
     return `<h1>Ваш кошык</h1>
-      <div class="empty"><p class="muted">Загрузіце гісторыю пакупак у CSV, і тут з'явіцца, на што ідуць грошы, і тры змены з найбольшым эфектам.</p><a class="btn" href="#/add">Загрузіць чэкі</a></div>`;
+      <div class="empty"><p class="muted">Загрузіце гісторыю пакупак у CSV, і тут з'явіцца, на што ідуць грошы, і тры змены з найбольшым эфектам.</p><a class="btn" href="#/add">Загрузіць чэкі</a>${demoButton()}</div>`;
   }
   const st = basketStats(state.lines);
   const top = st.shares.slice(0, 11);
@@ -514,6 +535,23 @@ const actions = {
     ui.preview = null;
     save();
     toast(`Дададзена: ${pv.ids.length} складнікаў${pv.lines ? `, ${receiptCount(pv.lines)} чэкаў у гісторыю` : ''}`);
+  },
+  'load-demo'() {
+    const lines = demoLines(todayISO());
+    const ids = latestReceiptIds(lines);
+    state.demoPantry = ids.filter((id) => !state.pantry.includes(id));
+    addToPantry(ids);
+    state.lines = [...state.lines.filter((l) => l.store !== DEMO_STORE), ...lines];
+    save();
+    toast(`Дэма: ${ids.length} складнікаў дома, ${receiptCount(lines)} чэкаў у гісторыі`);
+  },
+  'clear-demo'() {
+    const demo = new Set(state.demoPantry ?? []);
+    state.pantry = state.pantry.filter((id) => !demo.has(id));
+    state.lines = state.lines.filter((l) => l.store !== DEMO_STORE);
+    state.demoPantry = [];
+    save();
+    toast('Дэма прыбрана');
   },
   remove(el) {
     state.pantry = state.pantry.filter((id) => id !== el.dataset.id);
