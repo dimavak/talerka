@@ -23,7 +23,7 @@ export const PRODUCTS = [
   // Гародніна
   { id: 'pepper', name: 'перац', group: 'veg', p: 1, f: 2, plant: true, pl: 'papryk', aka: ['перац', 'перец', 'papryka'] },
   { id: 'cucumber', name: 'агурок', group: 'veg', p: 0.7, f: 0.5, plant: true, pl: 'ogór', aka: ['агурок', 'агуркі', 'огурец', 'огурцы'] },
-  { id: 'tomato', name: 'памідоры', group: 'veg', p: 0.9, f: 1.2, plant: true, pl: 'pomid|pom\\.', aka: ['памідор', 'памідоры', 'помидор', 'помидоры'] },
+  { id: 'tomato', name: 'памідоры', group: 'veg', p: 0.9, f: 1.2, plant: true, pl: '(?<!sosie )pomid|pom\\.', aka: ['памідор', 'памідоры', 'помидор', 'помидоры'] },
   { id: 'rocket', name: 'рукала', group: 'veg', p: 2.6, f: 1.6, plant: true, pl: 'rukol', aka: ['рукала', 'рукола', 'руккола'] },
   { id: 'lettuce', name: 'салата', group: 'veg', p: 1.2, f: 1.3, plant: true, pl: 'sałat', aka: ['салата', 'салат', 'латук'] },
   { id: 'zucchini', name: 'цукіні', group: 'veg', p: 1.2, f: 1, plant: true, pl: 'cukini', aka: ['цукіні', 'цукиня', 'цукіня', 'кабачок'] },
@@ -95,7 +95,7 @@ export const PRODUCTS = [
   { id: 'chicken_marinated', name: 'курыца ў марынадзе', group: 'poultry', p: 18, f: 0, pl: 'kurczak w marynac', aka: ['курыца ў марынадзе'] },
   { id: 'chicken_thigh', name: 'курыныя сцёгны', group: 'poultry', p: 17, f: 0, pl: 'udo|podudz|ćwiartk|skrzyd', aka: ['сцёгны', 'галёнкі', 'бедра', 'голени'] },
   { id: 'turkey', name: 'індычка', group: 'poultry', p: 22, f: 0, pl: 'indyk', aka: ['індычка', 'индейка'] },
-  { id: 'chicken_breast', name: 'курыная грудка', group: 'poultry', p: 23, f: 0, pl: 'pierś z kurcz|filet z kurcz|kurczak', aka: ['курыца', 'курыная грудка', 'курица', 'филе'] },
+  { id: 'chicken_breast', name: 'курыная грудка', group: 'poultry', p: 23, f: 0, pl: 'pier\\S* z kurcz|filet z pier\\S* kurcz|filet z kurcz|kurczak', aka: ['курыца', 'курыная грудка', 'курица', 'филе'] },
   { id: 'minced_meat', name: 'фарш', group: 'meat', p: 17, f: 0, pl: 'mięso miel', aka: ['фарш'] },
   { id: 'pork', name: 'свініна', group: 'meat', p: 20, f: 0, pl: 'schab|karków|łopatk', aka: ['свініна', 'свинина'] },
   { id: 'beef', name: 'ялавічына', group: 'meat', p: 20, f: 0, pl: 'wołow', aka: ['ялавічына', 'говядина'] },
@@ -131,7 +131,7 @@ export const BY_ID = Object.fromEntries(PRODUCTS.map((p) => [p.id, p]));
 const compiled = PRODUCTS.map((p) => ({ p, re: new RegExp(p.pl, 'i') }));
 
 // Польская назва з чэка → складнік ці null. Салодкае, напоі і не-ежа сюды не трапляюць наўмысна.
-const NOT_FOOD_HINT = /czekol|kinder|cukier|żelk|pianki|prali|lody|baton|tic tac|jelly|deser|babka|piw|wino\b|likier|sok |nektar|karma|ręcznik|szczot|past[ay] |sensod|torba|reklam|kaucj|tulip|goździk|chips|wafl|star mix|serniczek/i;
+const NOT_FOOD_HINT = /czekol|kinder|cukier|żelk|pianki|prali|lody|baton|tic tac|jelly|deser(?!ow)|babka|piw|wino\b|likier|sok |nektar|karma|ręcznik|szczot|past[ay] |sensod|torba|reklam|kaucj|tulip|goździk|chips|wafl|star mix|serniczek/i;
 
 export function matchReceiptName(name) {
   if (NOT_FOOD_HINT.test(name)) return null;
