@@ -131,7 +131,7 @@ export const BY_ID = Object.fromEntries(PRODUCTS.map((p) => [p.id, p]));
 const compiled = PRODUCTS.map((p) => ({ p, re: new RegExp(p.pl, 'i') }));
 
 // Польская назва з чэка → складнік ці null. Салодкае, напоі і не-ежа сюды не трапляюць наўмысна.
-const NOT_FOOD_HINT = /czekol|kinder|cukier|żelk|pianki|prali|lody|baton|tic tac|jelly|deser(?!ow)|babka|piw|wino\b|likier|sok |nektar|karma|ręcznik|szczot|past[ay] |sensod|torba|reklam|kaucj|tulip|goździk|chips|wafl|star mix|serniczek/i;
+export const NOT_FOOD_HINT = /czekol|kinder|cukier|żelk|pianki|prali|lody|baton|tic tac|jelly|deser(?!ow)|babka|piw|wino\b|likier|sok |nektar|karma|ręcznik|szczot|past[ay] |sensod|torba|reklam|kaucj|tulip|goździk|chips|wafl|star mix|serniczek/i;
 
 export function matchReceiptName(name) {
   if (NOT_FOOD_HINT.test(name)) return null;

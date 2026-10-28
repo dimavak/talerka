@@ -220,3 +220,28 @@ button.cell:disabled { opacity: .45; cursor: default; }
 .cell.picked { background: var(--take-soft); box-shadow: inset 0 0 0 2px var(--take); }
 .swaphint { font-size: 14px; font-weight: 600; color: var(--take-ink); background: var(--take-soft); border-radius: 12px; padding: 10px 12px; }
 a.cell::after { content: ' ›'; color: var(--mid); }
+
+/* R2: фота чэка і экран праверкі */
+.photo-pick { display: flex; flex-direction: column; gap: 8px; }
+.photo-pick .btn { gap: 10px; }
+.photo-pick .btn svg { width: 22px; height: 22px; }
+.frames { display: flex; flex-direction: column; gap: 8px; }
+.frame { background: var(--card); border-radius: 14px; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.frame .track { height: 6px; background: var(--chip); border-radius: 999px; overflow: hidden; }
+.frame .fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .2s linear; }
+.sumcheck { border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.sumcheck.ok { background: var(--accent-soft); color: var(--accent); }
+.sumcheck.warn { background: var(--buy-soft); color: var(--buy); border: 1px solid var(--buy-line); }
+.field input[type="date"] { font-size: 16px; }
+.rlines { display: flex; flex-direction: column; }
+.rline { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
+.rline:first-child { border-top: none; }
+.rline.check { box-shadow: inset 3px 0 0 var(--less); padding-left: 8px; }
+.rline.off .rbody { opacity: .45; }
+.rinc { width: 22px; height: 22px; margin-top: 11px; accent-color: var(--accent); flex: none; }
+.rbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rtop { display: flex; gap: 6px; }
+.rline .input { min-height: 44px; padding: 8px 10px; font-size: 14px; border-radius: 10px; }
+.rname { flex: 1; min-width: 0; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.rpaid { width: 84px; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+.rprod { width: 100%; }

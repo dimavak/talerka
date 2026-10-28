@@ -24,6 +24,7 @@ export const CATEGORIES = {
   fats_oils: 'Алей',
   ready_meal: 'Гатовая ежа',
   non_food: 'Не ежа',
+  unknown: 'Іншае',
 };
 
 const GROUP_TO_CATEGORY = {
