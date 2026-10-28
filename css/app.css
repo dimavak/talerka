@@ -211,3 +211,12 @@ a.cell { text-decoration: none; color: inherit; display: block; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 nav.tabsbar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 nav.tabsbar a { font-size: 11.5px; }
+
+/* Адмена, абмен месцамі */
+.toast { display: flex; align-items: center; gap: 14px; }
+.toast button { border: none; background: transparent; color: var(--accent-soft); font-weight: 700; font-size: 14px; cursor: pointer; padding: 6px 2px; min-height: 36px; text-decoration: underline; }
+button.cell { font: inherit; font-size: 12.5px; color: inherit; }
+button.cell:disabled { opacity: .45; cursor: default; }
+.cell.picked { background: var(--take-soft); box-shadow: inset 0 0 0 2px var(--take); }
+.swaphint { font-size: 14px; font-weight: 600; color: var(--take-ink); background: var(--take-soft); border-radius: 12px; padding: 10px 12px; }
+a.cell::after { content: ' ›'; color: var(--mid); }
