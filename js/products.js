@@ -73,7 +73,7 @@ export const PRODUCTS = [
 
   // Бабовыя
   { id: 'hummus', name: 'хумус', group: 'legume', p: 7, f: 6, plant: true, pl: 'hummus', aka: ['хумус'] },
-  { id: 'chickpeas', name: 'цяцерыца', group: 'legume', p: 7, f: 6, plant: true, pl: 'ciecierz', aka: ['цяцерыца', 'нут'] },
+  { id: 'chickpeas', name: 'нут', group: 'legume', p: 7, f: 6, plant: true, pl: 'ciecierz', aka: ['нут', 'цяцерыца', 'цецярыца'] },
   { id: 'beans', name: 'фасоля', group: 'legume', p: 8, f: 6, plant: true, pl: 'fasol(?!ka w sos)|kidney', aka: ['фасоля', 'фасоль'] },
   { id: 'lentils', name: 'сачавіца', group: 'legume', p: 9, f: 8, plant: true, pl: 'soczew', aka: ['сачавіца', 'чечевица'] },
   { id: 'peas', name: 'гарошак', group: 'legume', p: 5, f: 5, plant: true, pl: 'groszek', aka: ['гарошак', 'зялёны гарошак', 'горошек'] },

@@ -275,7 +275,7 @@ export const TEMPLATES = [
     portable: true,
   },
   {
-    id: 'd-chickpea-yogurt', meal: ['dinner', 'lunch'], title: 'Цяцерыца з ёгуртавым соусам',
+    id: 'd-chickpea-yogurt', meal: ['dinner', 'lunch'], title: 'Нут з ёгуртавым соусам',
     slots: [
       { role: 'protein', opts: ['chickpeas', 'beans', 'lentils'], g: 160, req: true },
       { role: 'sauce', opts: ['yogurt', 'skyr', 'kefir'], g: 100, req: true },
@@ -283,8 +283,8 @@ export const TEMPLATES = [
       { role: 'base', opts: ['tortilla', 'wholemeal_bread', 'bulgur', 'buckwheat'], g: 60 },
     ],
     methods: [
-      { equip: 'stove', total: 15, active: 10, pots: 1, steps: ['Абсмажце цяцерыцу з часныком і спецыямі 5 хвілін.', 'Дадайце шпінат ці памідоры на 2 хвіліны.', 'Падайце з ёгуртам, соллю і цытрынай.'] },
-      { equip: 'none', total: 8, active: 8, pots: 1, steps: ['Цяцерыцу прамыйце, змяшайце з гароднінай.', 'Зверху ёгурт з часныком і соллю.'] },
+      { equip: 'stove', total: 15, active: 10, pots: 1, steps: ['Абсмажце нут з часныком і спецыямі 5 хвілін.', 'Дадайце шпінат ці памідоры на 2 хвіліны.', 'Падайце з ёгуртам, соллю і цытрынай.'] },
+      { equip: 'none', total: 8, active: 8, pots: 1, steps: ['Нут прамыйце, змяшайце з гароднінай.', 'Зверху ёгурт з часныком і соллю.'] },
     ],
     portable: true,
   },
@@ -349,7 +349,7 @@ export const TEMPLATES = [
       { role: 'texture', opts: ['feta', 'goat_cheese', 'seeds', 'walnut'], g: 30 },
       { role: 'sauce', opts: ['yogurt', 'hummus'], g: 50 },
     ],
-    methods: [{ equip: 'oven', total: 35, active: 8, pots: 1, steps: ['Гародніну і цяцерыцу на бляху, алей, спецыі.', '30 хвілін пры 200°.', 'Зверху сыр ці насенне, побач ёгурт.'] }],
+    methods: [{ equip: 'oven', total: 35, active: 8, pots: 1, steps: ['Гародніну і нут на бляху, алей, спецыі.', '30 хвілін пры 200°.', 'Зверху сыр ці насенне, побач ёгурт.'] }],
     portable: true, batch: true,
   },
   {

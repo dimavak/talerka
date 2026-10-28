@@ -184,7 +184,7 @@ export function basketAdvice(lines) {
     const hummusOnly = lines.filter((l) => l.category === 'legumes').every((l) => /hummus/i.test(l.item));
     out.push({
       weight: (0.06 - st.share('legumes')) * 100,
-      title: hummusOnly ? 'Да хумусу + цяцерыца і сачавіца' : '+ цяцерыца, фасоля, сачавіца',
+      title: hummusOnly ? 'Да хумусу + нут і сачавіца' : '+ нут, фасоля, сачавіца',
       why: hummusOnly ? `бабовыя ${pct('legumes')}%, і амаль усё — хумус` : `бабовыя ${pct('legumes')}%, мэта — тры разы на тыдзень`,
       add: ['chickpeas', 'lentils', 'beans'],
     });
