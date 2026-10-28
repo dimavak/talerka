@@ -30,6 +30,8 @@ export function defaultState() {
     plan: {},
     shopping: { manual: [], done: {}, snooze: {} },
     cooked: [],
+    // Слоўнік назваў з чэкаў: «hummus» → id складніка або '' («не для страў»).
+    aliases: {},
   };
 }
 

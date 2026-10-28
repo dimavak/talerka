@@ -73,7 +73,7 @@ export const PRODUCTS = [
 
   // Бабовыя
   { id: 'hummus', name: 'хумус', group: 'legume', p: 7, f: 6, plant: true, pl: 'hummus', aka: ['хумус'] },
-  { id: 'chickpeas', name: 'цяцерыца', group: 'legume', p: 7, f: 6, plant: true, pl: 'ciecierz', aka: ['цяцерыца', 'нут'] },
+  { id: 'chickpeas', name: 'нут', group: 'legume', p: 7, f: 6, plant: true, pl: 'ciecierz', aka: ['нут', 'цяцерыца', 'цецярыца'] },
   { id: 'beans', name: 'фасоля', group: 'legume', p: 8, f: 6, plant: true, pl: 'fasol(?!ka w sos)|kidney', aka: ['фасоля', 'фасоль'] },
   { id: 'lentils', name: 'сачавіца', group: 'legume', p: 9, f: 8, plant: true, pl: 'soczew', aka: ['сачавіца', 'чечевица'] },
   { id: 'peas', name: 'гарошак', group: 'legume', p: 5, f: 5, plant: true, pl: 'groszek', aka: ['гарошак', 'зялёны гарошак', 'горошек'] },
@@ -131,7 +131,7 @@ export const BY_ID = Object.fromEntries(PRODUCTS.map((p) => [p.id, p]));
 const compiled = PRODUCTS.map((p) => ({ p, re: new RegExp(p.pl, 'i') }));
 
 // Польская назва з чэка → складнік ці null. Салодкае, напоі і не-ежа сюды не трапляюць наўмысна.
-const NOT_FOOD_HINT = /czekol|kinder|cukier|żelk|pianki|prali|lody|baton|tic tac|jelly|deser(?!ow)|babka|piw|wino\b|likier|sok |nektar|karma|ręcznik|szczot|past[ay] |sensod|torba|reklam|kaucj|tulip|goździk|chips|wafl|star mix|serniczek/i;
+export const NOT_FOOD_HINT = /czekol|kinder|cukier|żelk|pianki|prali|lody|baton|tic tac|jelly|deser(?!ow)|babka|piw|wino\b|likier|sok |nektar|karma|ręcznik|szczot|past[ay] |sensod|torba|reklam|kaucj|tulip|goździk|chips|wafl|star mix|serniczek/i;
 
 export function matchReceiptName(name) {
   if (NOT_FOOD_HINT.test(name)) return null;

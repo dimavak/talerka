@@ -17,6 +17,7 @@ import {
   portionsFor, gramsFor, planRules, moveTargets, members, people,
 } from './plan.js';
 import { buildList, toggleBought, addManual, removeManual, clearBought, snooze, shareText } from './shopping.js';
+import { parseReceiptOCR, mergeFrames, sumCheck, draftToLines, aliasKey } from './receipt-ocr.js';
 
 function todayISO() {
   const d = new Date();
@@ -25,7 +26,7 @@ function todayISO() {
 }
 
 let state = loadState(todayISO());
-const ui = { preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '', swap: false, swapFrom: null, undo: null, said: null };
+const ui = { addTab: 'photo', receipt: null, preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '', swap: false, swapFrom: null, undo: null, said: null };
 // Запасы на сёння лічацца адзін раз на перамалёўку.
 let stock = {};
 
@@ -250,7 +251,7 @@ function emptyStart() {
   return `
     <div class="empty">
       <h1>Пачнём з таго, што вы купляеце</h1>
-      <p class="muted">Talerka мяркуе па чэках, што хутчэй за ўсё ёсць дома, складае план на тыдзень і спіс пакупак. Фота чэка будзе ў наступнай версіі; пакуль напішыце, што купілі, словамі.</p>
+      <p class="muted">Talerka мяркуе па чэках, што хутчэй за ўсё ёсць дома, складае план на тыдзень і спіс пакупак. Сфатаграфуйце чэк ці напішыце, што купілі, словамі.</p>
       <a class="btn" href="#/add">Дадаць прадукты</a>
       ${demoButton()}
     </div>`;
@@ -393,14 +394,15 @@ function viewAdd() {
 
   return `
     <div class="back"><a class="round" href="#/" aria-label="Назад">${ICON.back}</a><h1>Што вы купілі?</h1></div>
-    <div class="tabs two-tabs">
-      <button class="tab" disabled title="Наступная версія">${ICON.camera}Фота чэка · хутка</button>
-      <button class="tab" aria-pressed="true">${ICON.words}Спіс словамі</button>
+    <div class="tabs two-tabs" role="group" aria-label="Як дадаць">
+      <button class="tab" data-action="add-tab" data-tab="photo" aria-pressed="${ui.addTab === 'photo'}">${ICON.camera}Фота чэка</button>
+      <button class="tab" data-action="add-tab" data-tab="list" aria-pressed="${ui.addTab === 'list'}">${ICON.words}Спіс словамі</button>
     </div>
+    ${ui.addTab === 'photo' ? photoPanel() : `
     <label for="typed-list" class="small muted">Праз коску ці з новага радка</label>
     <textarea id="typed-list" placeholder="яйкі, грэчка, марожаныя брокалі, кефір">${esc(ui.listText)}</textarea>
     <button class="btn" data-action="parse-list">Распазнаць</button>
-    ${preview}
+    ${preview}`}
     <div class="section"><h2>Хутчэй за ўсё ёсць дома</h2>
       ${likely.length ? stockChips(likely, noBtn) : '<p class="sub">Пакуль нічога: дадайце пакупкі.</p>'}
     </div>
@@ -408,6 +410,157 @@ function viewAdd() {
     <p class="note">Talerka не вядзе дакладны ўлік: яна мяркуе па датах пакупак і тым, як часта вы купляеце. Праверыць халадзільнік перад гатаваннем — ваша справа. × — «гэтага няма», ✓ — «ёсць».</p>
     ${demoSection()}
     <p class="note">Усё захоўваецца толькі ў гэтым браўзеры на вашай прыладзе.</p>`;
+}
+
+// ── Фота чэка ──
+
+const STORES = ['Lidl', 'Biedronka', 'Carrefour'];
+const STORE_NAMES = { Lidl: 'Lidl', Biedronka: 'Бядронка', Carrefour: 'Карфур' };
+
+function productOptions(selected) {
+  const groups = Object.entries(GROUPS).map(([g, label]) => {
+    const opts = PRODUCTS.filter((p) => p.group === g).sort((a, b) => a.name.localeCompare(b.name, 'be'))
+      .map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    return `<optgroup label="${esc(label)}">${opts}</optgroup>`;
+  }).join('');
+  return `<option value="" ${selected ? '' : 'selected'}>не для страў (салодкае, не ежа…)</option>${groups}`;
+}
+
+function frameHTML(f, i) {
+    const state = f.status === 'error' ? `<span class="tag warn">${esc(f.error)}</span>`
+      : f.status === 'done' ? `<span class="tag good">${f.count} радк.</span>`
+      : f.status === 'work' ? `<span class="sub">${esc(f.stage)}</span>` : '<span class="sub">чакае</span>';
+    const bar = f.status === 'work' ? `<div class="track"><div class="fill good" style="width:${Math.round(f.progress * 100)}%"></div></div>` : '';
+    return `<div class="frame" data-frame="${i}"><div class="row"><span>Кадр ${i + 1}</span>${state}</div>${bar}</div>`;
+}
+
+function framesBox(rc) {
+  return `<div class="frames">${rc.frames.map(frameHTML).join('')}</div>`;
+}
+
+function sumBox(d) {
+  const c = sumCheck(d);
+  if (c.total == null) return `<div class="sumcheck warn">Радкі: ${zl(c.sum)}. Сумы чэка не відаць — упішыце яе, каб праверыць.</div>`;
+  if (c.ok) return `<div class="sumcheck ok">${ICON.check} Сума супала: ${zl(c.sum)}</div>`;
+  const what = c.diff > 0 ? `не хапае ${zl(c.diff)}: мабыць, прапушчаны радок або не адняўся мінус` : `лішне ${zl(-c.diff)}: мабыць, не адняўся «OPUST» або радок паўтараецца`;
+  return `<div class="sumcheck warn">На чэку ${zl(c.total)}, у радках ${zl(c.sum)} — ${what}.</div>`;
+}
+
+function reviewRows(d) {
+  return d.items.map((it, i) => `
+    <div class="rline ${it.include ? '' : 'off'} ${it.check && it.include ? 'check' : ''}">
+      <input type="checkbox" class="rinc" data-rc="include" data-i="${i}" ${it.include ? 'checked' : ''} aria-label="Улічваць радок">
+      <div class="rbody">
+        <div class="rtop">
+          <input class="input rname" data-rc="name" data-i="${i}" value="${esc(it.name)}" aria-label="Назва з чэка">
+          <input class="input rpaid" data-rc="paid" data-i="${i}" inputmode="decimal" value="${it.paid ? String(it.paid).replace('.', ',') : ''}" placeholder="0,00" aria-label="Цана, зл">
+        </div>
+        <select class="input rprod" data-rc="productId" data-i="${i}" aria-label="Што гэта">${productOptions(it.productId)}</select>
+      </div>
+    </div>`).join('');
+}
+
+function photoPanel() {
+  const rc = ui.receipt;
+  const pick = `<div class="photo-pick">
+      <label class="btn big">${ICON.camera}<span>${rc ? 'Яшчэ кадр' : 'Сфатаграфаваць чэк'}</span><input type="file" accept="image/*" capture="environment" data-photo hidden></label>
+      <label class="btn ghost">${rc ? 'Яшчэ з галерэі' : 'З галерэі ці скрыншот'}<input type="file" accept="image/*,.heic,.heif" multiple data-photo hidden></label>
+    </div>`;
+  if (!rc) {
+    return `${pick}
+      <p class="note">Чэк кладзіце на цёмны стол, каб папера была добра відаць. Доўгі чэк здымайце некалькімі кадрамі зверху ўніз, так каб 2–3 радкі паўтараліся. Падыходзяць і скрыншоты e-чэкаў з Lidl Plus ці Moja Biedronka. Распазнаванне ідзе на гэтым тэлефоне, фота нікуды не адпраўляецца.</p>`;
+  }
+  const busy = rc.frames.some((f) => f.status === 'work' || f.status === 'wait');
+  const d = rc.draft;
+  const review = d ? `
+    <div class="card">
+      <div class="row"><div class="title">Праверце радкі</div><span class="tag">${d.items.filter((x) => x.include).length} з ${d.items.length}</span></div>
+      <div class="seg" style="--n:4" role="group" aria-label="Крама">
+        ${STORES.map((st) => `<button data-action="rc-store" data-store="${st}" aria-pressed="${d.store === st}">${STORE_NAMES[st]}</button>`).join('')}
+        <button data-action="rc-store" data-store="" aria-pressed="${!STORES.includes(d.store)}">Іншая</button>
+      </div>
+      <div class="two">
+        <div class="field"><label for="rc-date">Дата</label><input id="rc-date" type="date" data-rc="date" value="${esc(d.date ?? todayISO())}"></div>
+        <div class="field"><label for="rc-total">Сума на чэку, зл</label><input id="rc-total" data-rc="total" inputmode="decimal" value="${d.total != null ? String(d.total).replace('.', ',') : ''}" placeholder="—"></div>
+      </div>
+      <div id="rc-sum">${sumBox(d)}</div>
+      <p class="note">Аранжавым пазначана тое, у чым распазнаванне не ўпэўнена. Знятая птушка — радок не ідзе ў гісторыю. Тое, што вы паправіце ў «Што гэта», Talerka запомніць для наступных чэкаў.</p>
+      <div class="rlines">${reviewRows(d)}</div>
+      <button class="btn dashed" data-action="rc-add-line">+ Радок, якога няма</button>
+      <button class="btn big" data-action="rc-save" ${busy || !d.items.some((x) => x.include) ? 'disabled' : ''}>Захаваць чэк</button>
+      <button class="btn ghost" data-action="rc-cancel">Скасаваць</button>
+    </div>` : '';
+  return `${framesBox(rc)}${busy ? '' : pick}${review}`;
+}
+
+let ocrQueue = Promise.resolve();
+
+function updateFrame(i) {
+  const el = document.querySelector(`.frames [data-frame="${i}"]`);
+  if (el && ui.receipt) el.outerHTML = frameHTML(ui.receipt.frames[i], i);
+}
+
+function addPhotos(files) {
+  if (!files.length) return;
+  ui.receipt ??= { frames: [], draft: null };
+  const rc = ui.receipt;
+  for (const file of files) {
+    const i = rc.frames.push({ status: 'wait', progress: 0, stage: '', count: 0 }) - 1;
+    ocrQueue = ocrQueue.then(async () => {
+      if (ui.receipt !== rc) return;
+      const f = rc.frames[i];
+      f.status = 'work';
+      render();
+      let last = 0;
+      try {
+        const { recognizeFile } = await import('./ocr.js');
+        const text = await recognizeFile(file, (p, stage) => {
+          f.progress = p;
+          f.stage = stage;
+          if (Date.now() - last > 250) { last = Date.now(); updateFrame(i); }
+        });
+        const parsed = parseReceiptOCR(text, state.aliases ?? {});
+        f.count = parsed.items.length;
+        f.status = 'done';
+        rc.draft = rc.draft ? mergeFrames([rc.draft, parsed]) : parsed;
+        // Дата не прачыталася ці выйшла ў будучыні — па змаўчанні сёння, яе відаць і можна змяніць.
+        if (!rc.draft.date || rc.draft.date > todayISO()) rc.draft.date = todayISO();
+      } catch (e) {
+        f.status = 'error';
+        f.error = e?.message || 'Не атрымалася распазнаць';
+      }
+      if (ui.receipt === rc && route().r === 'add') render();
+    });
+  }
+  render();
+}
+
+function rcInput(el) {
+  const d = ui.receipt?.draft;
+  if (!d) return;
+  const field = el.dataset.rc;
+  const money = (v) => { const n = parseFloat(String(v).replace(/\s/g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
+  if (field === 'date') d.date = el.value || null;
+  else if (field === 'total') d.total = el.value.trim() ? money(el.value) : null;
+  else {
+    const it = d.items[Number(el.dataset.i)];
+    if (!it) return;
+    if (field === 'include') { it.include = el.checked; el.closest('.rline')?.classList.toggle('off', !el.checked); }
+    else if (field === 'paid') it.paid = money(el.value);
+    else if (field === 'name') it.name = el.value;
+    else if (field === 'productId') { it.productId = el.value || null; it.userSet = true; it.include = true; it.check = false; }
+  }
+  const box = document.getElementById('rc-sum');
+  if (box) box.innerHTML = sumBox(d);
+}
+
+// Чэк з той жа крамы, датай і сумай ужо ў гісторыі — другі раз не дадаецца.
+function sameReceiptSaved(lines) {
+  const key = (ls) => `${ls[0]?.store}|${ls[0]?.date}|${ls.reduce((s, l) => s + l.paid, 0).toFixed(2)}`;
+  const k = key(lines);
+  const old = {};
+  for (const l of state.lines) (old[`${l.store}|${l.date}`] ??= []).push(l);
+  return Object.values(old).some((ls) => key(ls) === k);
 }
 
 function cellText(slot, dish) {
@@ -511,7 +664,7 @@ function viewList() {
 function viewBasket() {
   if (!state.lines.length) {
     return `<h1>Ваш кошык</h1>
-      <div class="empty"><p class="muted">Тут з'явіцца, на што ідуць грошы, і тры змены з найбольшым эфектам. Для аналізу патрэбныя чэкі: фота чэка будзе ў наступнай версіі.</p>${demoButton()}</div>`;
+      <div class="empty"><p class="muted">Тут з'явіцца, на што ідуць грошы, і тры змены з найбольшым эфектам. Для аналізу патрэбныя чэкі.</p><a class="btn" href="#/add">Дадаць фота чэка</a>${demoButton()}</div>`;
   }
   const st = basketStats(state.lines);
   const top = st.shares.slice(0, 11);
@@ -705,6 +858,28 @@ const actions = {
     location.hash = '#/';
   },
   'now-meal'(el) { ui.nowMeal = el.dataset.meal; },
+  'add-tab'(el) { ui.addTab = el.dataset.tab; },
+  'rc-store'(el) { if (ui.receipt?.draft) ui.receipt.draft.store = el.dataset.store; },
+  'rc-add-line'() {
+    ui.receipt?.draft?.items.push({ raw: '', name: '', qty: 1, unit: 'szt', paid: 0, discount: 0, productId: null, how: 'user', include: true, check: false });
+  },
+  'rc-cancel'() { ui.receipt = null; },
+  'rc-save'() {
+    const d = ui.receipt?.draft;
+    if (!d) return;
+    if (!d.date || d.date > todayISO()) { toast('Праверце дату чэка'); return; }
+    const lines = draftToLines(d);
+    if (!lines.length) return;
+    if (sameReceiptSaved(lines)) { toast('Такі чэк ужо ёсць у гісторыі'); return; }
+    // Слоўнік назваў: тое, што вы паправілі, наступным разам пазнаецца само.
+    state.aliases = { ...(state.aliases ?? {}) };
+    for (const it of d.items) if (it.userSet && aliasKey(it.name)) state.aliases[aliasKey(it.name)] = it.productId || '';
+    state.lines = [...state.lines, ...lines];
+    const n = new Set(lines.map((l) => l.productId).filter(Boolean)).size;
+    ui.receipt = null;
+    save();
+    toast(`Чэк захаваны: ${lines.length} радк., ${n} складн. для страў. Каб план іх улічыў — «Перабудаваць астатняе» на «Тыдні».`);
+  },
   'parse-list'() {
     ui.listText = document.getElementById('typed-list').value;
     const r = parseTypedList(ui.listText);
@@ -819,7 +994,7 @@ const SAID = {
   'clear-bought': 'Купленае прыбрана', have: 'Адзначана: ёсць дома',
 };
 // Адзнаку «купіў» і так можна зняць тым жа дотыкам.
-const NO_UNDO = new Set(['undo', 'share', 'bought']);
+const NO_UNDO = new Set(['undo', 'share', 'bought', 'add-tab', 'rc-store', 'rc-add-line', 'rc-cancel']);
 
 // Любое дзеянне, што змяніла дадзеныя, можна адмяніць з падказкі ўнізе.
 async function withUndo(fn, said = null) {
@@ -861,8 +1036,15 @@ document.addEventListener('toggle', (e) => {
   if (el.matches?.('details.recipe')) el.open ? ui.open.add(el.dataset.key) : ui.open.delete(el.dataset.key);
 }, true);
 
+// Экран праверкі чэка: змены не перамалёўваюць экран, каб не губляць фокус, толькі пералічваюць суму.
+document.addEventListener('input', (e) => {
+  if (e.target.dataset?.rc) rcInput(e.target);
+});
+
 document.addEventListener('change', (e) => {
   const el = e.target;
+  if (el.dataset.photo != null) { addPhotos([...el.files]); el.value = ''; return; }
+  if (el.dataset.rc) { rcInput(el); return; }
   if (el.dataset.setting || el.dataset.member != null) withUndo(() => applyChange(el), 'Захавана').then(render);
 });
 
@@ -886,6 +1068,9 @@ function applyChange(el) {
 
 window.addEventListener('hashchange', () => { ui.preview = null; ui.more = null; ui.swap = false; ui.swapFrom = null; render(); window.scrollTo(0, 0); });
 render();
+
+// Значок на экране і адкрыццё без сеткі.
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
 // Дапаможная інфармацыя для распрацоўкі ў кансолі.
 window.talerka = { get state() { return state; }, PRODUCTS, GROUPS, BY_TEMPLATE };
