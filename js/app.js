@@ -14,6 +14,7 @@ import { stockOn, availability, levelOf, reminders, addPurchase, markNotHome } f
 import {
   REPLACED, keyOf, parseKey, getSlot, dishAt, ensurePlan, hasStock, rebuildFrom, refill,
   markEaten, markSkipped, markReplaced, unmark, swapMeals, reroll, setDish,
+  REASONS, alternatives, chooseAlternative, toggleLove, forgetTaste, tasteCtx, HIDE_AFTER,
   portionsFor, gramsFor, planRules, moveTargets, members, people,
 } from './plan.js';
 import { buildList, toggleBought, addManual, removeManual, clearBought, snooze, shareText } from './shopping.js';
@@ -26,7 +27,7 @@ function todayISO() {
 }
 
 let state = loadState(todayISO());
-const ui = { addTab: 'photo', receipt: null, preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '', swap: false, swapFrom: null, undo: null, said: null };
+const ui = { alt: null, altReason: 'today', altList: [], addTab: 'photo', receipt: null, preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '', swap: false, swapFrom: null, undo: null, said: null };
 // Запасы на сёння лічацца адзін раз на перамалёўку.
 let stock = {};
 
@@ -96,6 +97,7 @@ const ICON = {
   cart: svg(20, '<path d="M4 8h16l-1.5 11h-13z"/><path d="M12 11v5M9.5 13.5h5"/>'),
   share: svg(20, '<path d="M12 15V4M8 8l4-4 4 4"/><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/>'),
   check: svg(16, '<path d="M5 12l5 5 9-10"/>', 2.5),
+  heart: svg(20, '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>'),
 };
 
 // ── Агульныя разлікі ──
@@ -122,7 +124,7 @@ function knownProducts() {
 // Што з'едзена за апошні тыдзень — каб «зараз» ведаў, чаго не хапае.
 function weekContext() {
   const from = addDays(todayISO(), -6);
-  const ctx = { fish: 0, legume: 0, redMeat: 0, plants: new Set(), uses: {}, known: knownProducts() };
+  const ctx = { fish: 0, legume: 0, redMeat: 0, plants: new Set(), uses: {}, known: knownProducts(), ...tasteCtx(state) };
   for (const c of state.cooked.filter((x) => x.date >= from)) {
     if (c.fish) ctx.fish++;
     if (c.legume) ctx.legume++;
@@ -154,7 +156,20 @@ function recipe(d, key, portions, forceOpen = false) {
     <ul class="grams">${rows}</ul>
     <p class="small muted">Плюс алей, соль, спецыі.</p>
     <ol>${d.method.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+    ${recipeLinks(d.template)}
   </details>`;
+}
+
+// Адкуль ідэя і дзе пачытаць падрабязней. Чужыя рэцэпты не капіруюцца: толькі спасылкі на пошук па сайце.
+const SRC = { pl: 'польская хатняя кухня, лёгкі варыянт', own: 'страва Talerka' };
+const siteSearch = (site, q) => `https://www.google.com/search?q=${encodeURIComponent(`site:${site} ${q}`)}`;
+function recipeLinks(t) {
+  const q = t.pl ?? t.title;
+  return `<p class="small muted links">Ідэя: ${esc(SRC[t.src] ?? SRC.own)}.
+    Падобны рэцэпт: <a href="${siteSearch('ncez.pzh.gov.pl', q)}" target="_blank" rel="noopener">NCEZ</a> ·
+    <a href="${siteSearch('diety.nfz.gov.pl', q)}" target="_blank" rel="noopener">Diety NFZ</a>.
+    Чаму так: <a href="https://nutritionsource.hsph.harvard.edu/healthy-eating-plate/" target="_blank" rel="noopener">Harvard Healthy Eating Plate</a>,
+    <a href="${siteSearch('ncez.pzh.gov.pl', 'talerz zdrowego żywienia')}" target="_blank" rel="noopener">Talerz Zdrowego Żywienia</a>.</p>`;
 }
 
 function dishTags(d) {
@@ -222,7 +237,8 @@ function slotCard(key, { forceMore = false } = {}) {
         <select id="move-${esc(key)}" class="input">${targets.map((t) => `<option value="${t.key}">${esc(cap(slotName(t.key)))}: ${t.current ? esc(t.current.toLowerCase()) : 'вольна'}</option>`).join('')}</select>
         <button class="btn ghost" data-action="move" data-key="${key}">Памяняць</button>
       </div>
-      <div class="actions"><button class="btn ghost" data-action="reroll" data-key="${key}">Іншая страва</button></div>
+      <div class="actions"><button class="btn ghost" data-action="alt-open" data-key="${key}" aria-expanded="${ui.alt === key}">Іншы варыянт</button></div>
+      ${ui.alt === key ? altPanel(key, d) : ''}
     </div>` : '';
 
   return `<div class="card">
@@ -239,9 +255,41 @@ function slotCard(key, { forceMore = false } = {}) {
     <div class="actions">
       <button class="btn" data-action="eaten" data-key="${key}">Гатова</button>
       <button class="btn ghost" data-action="skip" data-key="${key}">Прапусціць</button>
+      ${heartButton(d.template.id)}
       ${forceMore ? '' : `<button class="btn ghost" data-action="more" data-key="${key}" aria-expanded="${more}">${more ? 'Схаваць' : 'Іншае…'}</button>`}
     </div>
     ${panel}
+  </div>`;
+}
+
+function heartButton(tpl) {
+  const on = Boolean(state.tastes?.[tpl]?.love);
+  return `<button class="btn ghost heart" data-action="love" data-tpl="${tpl}" aria-pressed="${on}" aria-label="${on ? 'Падабаецца: зняць' : 'Падабаецца: прапаноўваць часцей'}" title="Падабаецца">${ICON.heart}</button>`;
+}
+
+// «Іншы варыянт»: прычына ў адзін дотык, потым тая ж страва з іншым напаўненнем і іншыя стравы.
+function altPanel(key, cur) {
+  const reason = ui.altReason;
+  const { variants, others } = alternatives(state, key, todayISO(), reason);
+  ui.altList = [...variants, ...others];
+  const row = (d, i) => `<div class="altrow">
+      <div class="grow"><div class="title">${esc(d.template.title)}</div>
+        <div class="sub">${esc(dishLabel(d))}</div>
+        <div class="sub">${methodLine(d.method)} · бялок ${d.protein} г${d.missing.length ? ` · дакупіць: ${esc(name(d.missing[0].ids[0]))}` : ''}${d.check.length ? ' · праверыць дома' : ''}</div></div>
+      <button class="btn ghost" data-action="pick-alt" data-key="${key}" data-i="${i}">Выбраць</button>
+    </div>`;
+  const dis = state.tastes?.[cur.template.id]?.dislike ?? 0;
+  const hint = reason === 'dislike'
+    ? `<p class="note">${dis + 1 >= HIDE_AFTER ? `«${esc(cur.template.title)}» больш не будзе прапаноўвацца. Вярнуць можна на «Кухні».` : `«${esc(cur.template.title)}» будзе трапляцца радзей. Яшчэ адно «не падабаецца» — і яна знікне з прапаноў.`}</p>`
+    : reason === 'missing' ? `<div class="checkline"><span class="sub">Чаго няма? Адзначце, і план гэта ўлічыць:</span>${[...new Set(cur.chosen.flatMap((c) => c.ids))].map((id) => `<span class="chip">${esc(name(id))}<button data-action="not-home" data-id="${id}" aria-label="${esc(name(id))}: няма дома">няма</button></span>`).join('')}</div>`
+    : reason === 'long' ? `<p class="note">Толькі хутчэйшыя за ${cur.method.total} хв.</p>` : '';
+  return `<div class="alt">
+    <div class="small muted">Чаму?</div>
+    <div class="pills">${Object.entries(REASONS).map(([k, label]) => `<button class="pill" data-action="alt-reason" data-key="${key}" data-reason="${k}" aria-pressed="${k === reason}">${label}</button>`).join('')}</div>
+    ${hint}
+    ${variants.length ? `<div class="small muted">Тая ж страва, іншае напаўненне</div>${variants.map((d, i) => row(d, i)).join('')}` : ''}
+    ${others.length ? `<div class="small muted">Іншыя стравы, не горшыя па правілах талеркі</div>${others.map((d, i) => row(d, variants.length + i)).join('')}` : ''}
+    ${ui.altList.length ? '' : `<p class="sub">Нічога не горшага з таго, што ёсць, не знайшлося.</p><div class="actions"><button class="btn ghost" data-action="reroll" data-key="${key}">Падабраць усё роўна</button></div>`}
   </div>`;
 }
 
@@ -736,12 +784,25 @@ function viewKitchen() {
       <input id="k-exclude" class="input" placeholder="напрыклад: грыбы, печань" value="${esc(excluded)}">
       <button class="btn ghost" data-action="save-exclude">Захаваць</button>
     </div>
+    ${tastesSection()}
     <p class="note">Змены тут перабудоўваюць план з заўтрашняга дня; сённяшнія прыёмы і вашы адзнакі застаюцца.</p>
     <div class="section">
       <h2>Дадзеныя</h2>
       <p class="note">${receiptCount(state.lines)} чэкаў, ${Object.keys(stock).length} прадуктаў у гісторыі пакупак, ${state.cooked.length} з'едзеных страў. Усё ляжыць толькі ў гэтым браўзеры.</p>
       <button class="btn ghost" data-action="reset">${ui.confirmReset ? 'Націсніце яшчэ раз, каб выдаліць усё' : 'Выдаліць усе дадзеныя'}</button>
     </div>`;
+}
+
+function tastesSection() {
+  const t = tasteCtx(state);
+  const chips = (ids, label) => `<div class="chips">${[...ids].filter((id) => BY_TEMPLATE[id]).map((id) => `<span class="chip">${esc(BY_TEMPLATE[id].title)}<button data-action="forget-taste" data-tpl="${id}" aria-label="${esc(BY_TEMPLATE[id].title)}: ${label}">${label}</button></span>`).join('')}</div>`;
+  if (!t.loved.size && !t.hidden.size) {
+    return `<div class="section"><h2>Густы</h2><p class="note">Сэрца на страве — прапаноўваць часцей. «Не падабаецца» ў «Іншым варыянце» двойчы — больш не прапаноўваць.</p></div>`;
+  }
+  return `<div class="section"><h2>Густы</h2>
+    ${t.loved.size ? `<p class="sub">Падабаецца, прапануем часцей:</p>${chips(t.loved, 'зняць')}` : ''}
+    ${t.hidden.size ? `<p class="sub">Не прапануем:</p>${chips(t.hidden, 'вярнуць')}` : ''}
+  </div>`;
 }
 
 // ── Маршрутызацыя і падзеі ──
@@ -827,7 +888,25 @@ const actions = {
     save();
     toast('Адменена');
   },
-  reroll(el) { reroll(state, el.dataset.key, todayISO()); save(); },
+  reroll(el) { reroll(state, el.dataset.key, todayISO()); ui.alt = null; save(); },
+  'alt-open'(el) { ui.alt = ui.alt === el.dataset.key ? null : el.dataset.key; ui.altReason = 'today'; },
+  'alt-reason'(el) { ui.altReason = el.dataset.reason; },
+  'pick-alt'(el) {
+    const d = ui.altList[Number(el.dataset.i)];
+    if (!d) return;
+    const old = getSlot(state, el.dataset.key)?.tpl;
+    const { hidden } = chooseAlternative(state, el.dataset.key, d, ui.altReason, todayISO());
+    ui.alt = null;
+    ui.more = null;
+    save();
+    toast(hidden && BY_TEMPLATE[old] ? `«${BY_TEMPLATE[old].title}» больш не прапануем. Вярнуць — на «Кухні».` : `Замест гэтага: «${d.template.title}»`);
+  },
+  love(el) {
+    const on = toggleLove(state, el.dataset.tpl);
+    save();
+    toast(on ? 'Будзем прапаноўваць часцей' : 'Сэрца знята');
+  },
+  'forget-taste'(el) { forgetTaste(state, el.dataset.tpl); save(); },
   rebuild() {
     if (!ui.confirmRebuild) { ui.confirmRebuild = true; return; }
     ui.confirmRebuild = false;
@@ -991,10 +1070,10 @@ const SAID = {
   take: 'Дні «з сабой» зменены, план з заўтра перабудаваны', sched: 'Графік зменены, план з заўтра перабудаваны',
   equip: 'Кухня зменена, план з заўтра перабудаваны', minutes: 'Час на сёння зменены', snooze: 'Схавана на тыдзень',
   'add-member': 'Удзельнік дададзены', 'remove-member': 'Удзельнік прыбраны', 'remove-manual': 'Прыбрана са спіса',
-  'clear-bought': 'Купленае прыбрана', have: 'Адзначана: ёсць дома',
+  'clear-bought': 'Купленае прыбрана', 'forget-taste': 'Густ скінуты', have: 'Адзначана: ёсць дома',
 };
 // Адзнаку «купіў» і так можна зняць тым жа дотыкам.
-const NO_UNDO = new Set(['undo', 'share', 'bought', 'add-tab', 'rc-store', 'rc-add-line', 'rc-cancel']);
+const NO_UNDO = new Set(['undo', 'share', 'bought', 'alt-open', 'alt-reason', 'add-tab', 'rc-store', 'rc-add-line', 'rc-cancel']);
 
 // Любое дзеянне, што змяніла дадзеныя, можна адмяніць з падказкі ўнізе.
 async function withUndo(fn, said = null) {
@@ -1066,7 +1145,7 @@ function applyChange(el) {
   }
 }
 
-window.addEventListener('hashchange', () => { ui.preview = null; ui.more = null; ui.swap = false; ui.swapFrom = null; render(); window.scrollTo(0, 0); });
+window.addEventListener('hashchange', () => { ui.preview = null; ui.more = null; ui.alt = null; ui.swap = false; ui.swapFrom = null; render(); window.scrollTo(0, 0); });
 render();
 
 // Значок на экране і адкрыццё без сеткі.

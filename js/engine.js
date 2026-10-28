@@ -121,6 +121,9 @@ export function scoreDish(dish, ctx = {}) {
   // Страва, задуманая менавіта для гэтага прыёму ежы, крыху важнейшая за запасны варыянт.
   if (ctx.meal && dish.template.meal[0] === ctx.meal) s += 0.75;
   s -= dish.missing.length * 2.5;
+  // Густы сям'і: «падабаецца» — часцей, адно «не падабаецца» — радзей (два — страва схаваная).
+  if (ctx.loved?.has(dish.template.id)) s += 1.5;
+  if (ctx.disliked?.has(dish.template.id)) s -= 1.5;
   // «Правер, ці ёсць» — горш за тое, што амаль напэўна дома, але лепш за дакупку.
   s -= (dish.check?.length ?? 0) * 0.6;
   // Тры тартылі за дзень — не разнастайнасць: асноўныя складнікі за сёння штрафуюцца.
@@ -137,10 +140,19 @@ export function dishLabel(dish) {
   return dish.chosen.flatMap((c) => c.ids).map((id) => BY_ID[id].name).join(' · ');
 }
 
+// Адна і тая ж страва — не часцей за два разы на тыдзень.
+export const MAX_PER_WEEK = 2;
+
+// Ці можна прапанаваць шаблон: не схаваны сям'ёй і яшчэ не два разы на тыдні.
+export function allowed(t, ctx = {}) {
+  if (ctx.hidden?.has(t.id)) return false;
+  return ctx.capped ? !ctx.capped.has(t.id) : (ctx.uses?.[t.id] ?? 0) < MAX_PER_WEEK;
+}
+
 // Рэжым «зараз»: тры стравы з таго, што ёсць, і адна прапанова «дакупі адно».
 export function suggestNow({ pantry, settings, meal, limit, ctx = {}, maybe = null }) {
   const have = new Set(pantry);
-  const all = TEMPLATES.filter((t) => t.meal.includes(meal))
+  const all = TEMPLATES.filter((t) => t.meal.includes(meal) && !ctx.hidden?.has(t.id))
     .map((t) => buildDish(t, have, settings, limit, maybe))
     .filter(Boolean)
     .map((d) => ({ ...d, score: scoreDish(d, { ...ctx, meal }) }));
@@ -156,7 +168,7 @@ const NO_SECOND = new Set(['fish', 'poultry', 'meat', 'processed']);
 function bestSinglePurchase({ pantry, settings, meal, limit, ctx, best }) {
   const have = new Set(pantry);
   const haveGroups = new Set(pantry.map((id) => BY_ID[id]?.group));
-  const templates = TEMPLATES.filter((t) => t.meal.includes(meal));
+  const templates = TEMPLATES.filter((t) => t.meal.includes(meal) && !ctx.hidden?.has(t.id));
   const candidates = new Set(templates.flatMap((t) => t.slots.flatMap((s) => s.opts)));
   const baseScore = best ? best.score : 0;
   let top = null;
@@ -230,12 +242,57 @@ export function addToCtx(ctx, dish) {
 // Найлепшая страва для аднаго прыёму: максімум адна дакупка, «з сабой» — толькі тое, што трывае кантэйнер.
 // avoid — шаблоны, ад якіх карыстальнік ужо адмовіўся ў гэтым слоце.
 export function pickDish({ meal, mode, have, maybe = null, settings, limit, ctx, avoid = new Set() }) {
-  const candidates = TEMPLATES.filter((t) => t.meal.includes(meal) && (mode !== 'take' || t.portable) && !avoid.has(t.id))
+  const candidates = TEMPLATES.filter((t) => t.meal.includes(meal) && (mode !== 'take' || t.portable) && !avoid.has(t.id) && allowed(t, ctx))
     .map((t) => buildDish(t, have, settings, limit, maybe))
     .filter((d) => d && d.missing.length <= 1)
     .map((d) => ({ ...d, score: scoreDish(d, { ...ctx, meal }) }))
     .sort((a, b) => b.score - a.score);
   return candidates[0] ?? null;
+}
+
+// Тая ж страва з іншым напаўненнем: у кожным слоце бярэцца наступны варыянт з тых, што ёсць.
+// Вяртае да limit розных страў, не падобных на тую, што ўжо ў плане (fillKey).
+export function fillVariants(template, have, settings, timeLimit, maybe = null, skip = new Set(), limit = 2) {
+  const methods = usableMethods(template, settings.equipment, timeLimit);
+  if (!methods.length) return [];
+  const exclude = settings.exclude || [];
+  const out = [];
+  const seen = new Set(skip);
+  for (let shift = 1; shift <= 4 && out.length < limit; shift++) {
+    const chosen = [];
+    let ok = true;
+    for (const slot of template.slots) {
+      const avail = slot.opts.filter((id) => !exclude.includes(id) && have.has(id) && !maybe?.has(id));
+      const n = slot.pick || 1;
+      if (!avail.length) {
+        if (slot.req) { ok = false; break; }
+        continue;
+      }
+      // Зрух па коле: shift=1 — пачынаем з другога даступнага, shift=2 — з трэцяга…
+      const start = avail.length > n ? (shift * n) % avail.length : 0;
+      const ids = [...avail.slice(start), ...avail.slice(0, start)].slice(0, n);
+      chosen.push({ slot, ids });
+    }
+    if (!ok) break;
+    const key = fillKey(chosen);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ template, method: methods[0], chosen, missing: [], check: [], ...nutrition({ chosen, missing: [] }) });
+  }
+  return out;
+}
+
+export function fillKey(chosen) {
+  return chosen.map((c) => [...c.ids].sort().join('+')).join('|');
+}
+
+// Замена не павінна быць горшай па правілах: бялок, доля раслін, валакно, без каўбас.
+export function noWorse(alt, cur) {
+  return alt.protein >= Math.min(cur.protein, WEEK_GOALS.proteinPerMeal) - 2
+    && alt.plantShare >= Math.min(cur.plantShare, 0.4) - 0.05
+    && alt.fiber >= Math.min(cur.fiber, 6) - 1
+    && (!alt.processed || cur.processed)
+    && (!alt.redMeat || cur.redMeat);
 }
 
 // П1–П7 для тыдня. Вяртае спіс правіл з фактам, мэтай і ці выканана.
