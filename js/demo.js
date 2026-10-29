@@ -1,4 +1,5 @@
-// Дэма-дадзеныя для тэсту: восем выдуманых чэкаў тыповай сям'і за чатыры тыдні.
+// Дэма-дадзеныя для тэсту: чатырнаццаць выдуманых чэкаў тыповай сям'і за дзесяць тыдняў.
+// Старэйшыя чэкі салодзейшыя і з меншай колькасцю рыбы — каб на «Кошыку» была відаць дынаміка.
 // Гэта не нечыя рэальныя пакупкі. Даты лічацца ад сённяшняга дня, каб апошні чэк быў учорашні.
 import { linesFromCSV } from './receipt.js';
 
@@ -114,6 +115,62 @@ const RECEIPTS = [
     ['Makaron spaghetti', 1, 'szt', 4.49, 'refined_grain'],
     ['Lody waniliowe', 1, 'szt', 9.99, 'sweets'],
     ['Szprot w sosie pomid', 2, 'szt', 7.98, 'fish'],
+    ['Jabłka Gala luz', 1, 'kg', 4.99, 'fruit'],
+  ]],
+  // Два-тры месяцы таму: больш салодкага і каўбас, рыбы і зерня менш.
+  [33, [
+    ['Parówki z szynki', 2, 'szt', 19.98, 'processed_meat'],
+    ['Croissant maśl.', 4, 'szt', 7.96, 'refined_grain'],
+    ['Kinder Mlecz.Kanapka', 3, 'szt', 11.37, 'sweets'],
+    ['Pomidory mal. PL luz', 0.5, 'kg', 6.49, 'vegetables'],
+    ['Ogórki grunt. PL luz', 0.5, 'kg', 3.49, 'vegetables'],
+    ['Ser gouda plastry', 1, 'szt', 7.99, 'dairy'],
+    ['Banany luz', 1, 'kg', 4.99, 'fruit'],
+    ['Sok jabłkowy 1l', 2, 'szt', 9.98, 'drinks_sugary'],
+  ]],
+  [40, [
+    ['Jaja ściółkowe L', 10, 'szt', 11.99, 'eggs'],
+    ['Szynka Szwarcwaldzka', 2, 'szt', 17.98, 'processed_meat'],
+    ['Makaron spaghetti', 2, 'szt', 8.98, 'refined_grain'],
+    ['Lody waniliowe', 2, 'szt', 19.98, 'sweets'],
+    ['Cebula żółta luz', 0.5, 'kg', 1.99, 'vegetables'],
+    ['Marchew luz', 0.8, 'kg', 2.39, 'vegetables'],
+    ['Jabłka Gala luz', 1, 'kg', 4.99, 'fruit'],
+    ['Chipsy solone', 2, 'szt', 11.98, 'snacks'],
+  ]],
+  [47, [
+    ['Filet z piersi kurcz.', 0.8, 'kg', 19.2, 'poultry'],
+    ['Ziemniaki myte luz', 2, 'kg', 5.98, 'vegetables'],
+    ['Sałata lodowa szt.', 1, 'szt', 3.99, 'vegetables'],
+    ['Czekolada mleczna', 3, 'szt', 11.97, 'sweets'],
+    ['Mleko 2%', 2, 'szt', 7.58, 'dairy'],
+    ['Hummus 160g', 1, 'szt', 4.19, 'legumes'],
+    ['Szprot w sosie pomid', 1, 'szt', 3.99, 'fish'],
+  ]],
+  [58, [
+    ['Parówki z szynki', 2, 'szt', 19.98, 'processed_meat'],
+    ['Croissant maśl.', 4, 'szt', 7.96, 'refined_grain'],
+    ['Kinder Mlecz.Kanapka', 3, 'szt', 11.37, 'sweets'],
+    ['Pomidory mal. PL luz', 0.6, 'kg', 7.79, 'vegetables'],
+    ['Twaróg półtłusty', 1, 'szt', 4.79, 'dairy'],
+    ['Gruszki deserowe', 0.8, 'kg', 6.39, 'fruit'],
+    ['Sok jabłkowy 1l', 2, 'szt', 9.98, 'drinks_sugary'],
+  ]],
+  [65, [
+    ['Mięso miel. wołowe', 0.5, 'kg', 17.99, 'meat'],
+    ['Makaron spaghetti', 2, 'szt', 8.98, 'refined_grain'],
+    ['Cebula żółta luz', 0.5, 'kg', 1.99, 'vegetables'],
+    ['Papryka czerwona luz', 0.4, 'kg', 4.79, 'vegetables'],
+    ['Lody waniliowe', 1, 'szt', 9.99, 'sweets'],
+    ['Chipsy solone', 1, 'szt', 5.99, 'snacks'],
+    ['Banany luz', 1, 'kg', 4.99, 'fruit'],
+  ]],
+  [72, [
+    ['Jaja ściółkowe L', 10, 'szt', 11.99, 'eggs'],
+    ['Szynka Szwarcwaldzka', 1, 'szt', 8.99, 'processed_meat'],
+    ['Kinder Mlecz.Kanapka', 2, 'szt', 7.58, 'sweets'],
+    ['Ser gouda plastry', 1, 'szt', 7.99, 'dairy'],
+    ['Ogórki grunt. PL luz', 0.5, 'kg', 3.49, 'vegetables'],
     ['Jabłka Gala luz', 1, 'kg', 4.99, 'fruit'],
   ]],
 ];
