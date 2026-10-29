@@ -113,7 +113,7 @@ test('тэкст чэка: службовыя радкі і цэны адкід�
 test('дэма-чэкі: апошні ўчора, усё распазнаецца, ёсць стравы і парады', () => {
   const lines = demoLines('2026-10-28');
   assert.ok(lines.every((l) => l.store === DEMO_STORE));
-  assert.equal(new Set(lines.map((l) => l.date)).size, 8);
+  assert.equal(new Set(lines.map((l) => l.date)).size, 14);
   assert.equal(lines.reduce((m, l) => (l.date > m ? l.date : m), ''), '2026-10-27');
   const unknownFood = lines.filter((l) => !l.productId && !['non_food', 'sweets', 'snacks', 'drinks_sugary', 'sauce', 'refined_grain'].includes(l.category));
   assert.deepEqual(unknownFood.map((l) => l.item), []);

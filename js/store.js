@@ -34,6 +34,8 @@ export function defaultState() {
     aliases: {},
     // Густы: {шаблон: {dislike: n, love: true}}.
     tastes: {},
+    // Дата апошняй копіі ў файл.
+    backupAt: null,
   };
 }
 

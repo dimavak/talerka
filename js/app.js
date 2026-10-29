@@ -9,6 +9,8 @@ import {
   CATEGORIES, GOOD, LESS, parseTypedList, basketStats, basketAdvice, lastPrice, receiptCount,
 } from './receipt.js';
 import { loadState, saveState, defaultState } from './store.js';
+import { monthlyStats, monthOf, monthLabel, compareMonths, monthSummary, isPartial, WATCH } from './trends.js';
+import { makeBackup, readBackup, backupName, needsBackup, BackupError } from './backup.js';
 import { DEMO_STORE, demoLines } from './demo.js';
 import { stockOn, availability, levelOf, reminders, addPurchase, markNotHome } from './stock.js';
 import {
@@ -27,7 +29,7 @@ function todayISO() {
 }
 
 let state = loadState(todayISO());
-const ui = { alt: null, altReason: 'today', altList: [], addTab: 'photo', receipt: null, preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '', swap: false, swapFrom: null, undo: null, said: null };
+const ui = { basketMonth: null, restore: null, alt: null, altReason: 'today', altList: [], addTab: 'photo', receipt: null, preview: null, nowMeal: null, lastNow: null, open: new Set(), more: null, confirmReset: false, listText: '', swap: false, swapFrom: null, undo: null, said: null };
 // Запасы на сёння лічацца адзін раз на перамалёўку.
 let stock = {};
 
@@ -360,7 +362,7 @@ function demoButton() {
 function demoSection() {
   const text = hasDemo()
     ? 'Загружаны дэма-чэкі. Калі дадасце свае, дэма можна прыбраць.'
-    : 'Каб паспрабаваць аплікацыю без сваіх чэкаў, загрузіце восем выдуманых чэкаў тыповай сям’і за месяц.';
+    : 'Каб паспрабаваць аплікацыю без сваіх чэкаў, загрузіце чатырнаццаць выдуманых чэкаў тыповай сям’і за два з паловай месяцы.';
   const btn = hasDemo()
     ? '<button class="btn ghost" data-action="clear-demo">Прыбраць дэма</button>'
     : '<button class="btn ghost" data-action="load-demo">Загрузіць дэма-чэкі</button>';
@@ -712,28 +714,85 @@ function viewList() {
 function viewBasket() {
   if (!state.lines.length) {
     return `<h1>Ваш кошык</h1>
-      <div class="empty"><p class="muted">Тут з'явіцца, на што ідуць грошы, і тры змены з найбольшым эфектам. Для аналізу патрэбныя чэкі.</p><a class="btn" href="#/add">Дадаць фота чэка</a>${demoButton()}</div>`;
+      <div class="empty"><p class="muted">Тут з'явіцца, на што ідуць грошы, як мяняюцца пакупкі ад месяца да месяца і тры змены з найбольшым эфектам. Для аналізу патрэбныя чэкі.</p><a class="btn" href="#/add">Дадаць фота чэка</a>${demoButton()}</div>`;
   }
-  const st = basketStats(state.lines);
+  const months = monthlyStats(state.lines);
+  const sel = months.some((m) => m.month === ui.basketMonth) ? ui.basketMonth : null;
+  const lines = sel ? state.lines.filter((l) => monthOf(l.date) === sel) : state.lines;
+  const st = basketStats(lines);
   const top = st.shares.slice(0, 11);
   const max = Math.max(...top.map((x) => x.share), 0.01);
   const bars = top.map((x) => {
     const cls = GOOD.has(x.category) ? 'good' : LESS.has(x.category) ? 'less' : '';
     return `<div class="bar"><div>${esc(CATEGORIES[x.category] ?? x.category)}</div><div class="track"><div class="fill ${cls}" style="width:${Math.round((x.share / max) * 100)}%"></div></div><div class="pct">${Math.round(x.share * 100)}%</div></div>`;
   }).join('');
-  const advice = basketAdvice(state.lines).slice(0, 3);
-  const stores = [...new Set(state.lines.map((l) => l.store.split(' ')[0]))].join(', ');
+  const advice = basketAdvice(lines).slice(0, 3);
+  const stores = [...new Set(lines.map((l) => l.store.split(' ')[0]))].join(', ');
+  const pills = months.length > 1 ? `<div class="pills" role="group" aria-label="Перыяд">
+      <button class="pill" data-action="basket-month" data-month="" aria-pressed="${!sel}">Увесь час</button>
+      ${months.slice(-6).map((m) => `<button class="pill" data-action="basket-month" data-month="${m.month}" aria-pressed="${sel === m.month}">${monthLabel(m.month, { short: true })}</button>`).join('')}
+    </div>` : '';
 
   return `
-    <div><h1>Ваш кошык</h1><div class="sub">${st.receipts} чэкаў ${esc(stores)} · ${shortDate(st.from)}.${st.from.slice(0, 4)} – ${shortDate(st.to)}.${st.to.slice(0, 4)} · ${zl(st.total)}</div></div>
-    <div class="card"><h2>Доля выдаткаў на ежу і пітво</h2><div class="bars">${bars}</div>
+    <div><h1>Ваш кошык</h1><div class="sub">${st.receipts} ${plural(st.receipts, 'чэк', 'чэкі', 'чэкаў')} ${esc(stores)} · ${shortDate(st.from)}.${st.from.slice(0, 4)} – ${shortDate(st.to)}.${st.to.slice(0, 4)} · ${zl(st.total)}</div></div>
+    ${pills}
+    <div class="card"><h2>Доля выдаткаў на ежу і пітво${sel ? ` · ${monthLabel(sel)}` : ''}</h2>${sel && isPartial(sel, todayISO()) ? '<p class="note">Месяц яшчэ не скончыўся.</p>' : ''}<div class="bars">${bars}</div>
       <div class="legend"><span><i style="background:var(--accent)"></i>варта больш</span><span><i style="background:var(--less)"></i>варта менш</span></div>
     </div>
-    <div class="section"><h2>Змены з найбольшым эфектам</h2>
+    ${dynamicsSection(months)}
+    <div class="section"><h2>Змены з найбольшым эфектам${sel ? ` · ${monthLabel(sel)}` : ''}</h2>
       ${advice.map((a) => `<div class="card"><div class="title">${esc(a.title)}</div><div class="sub">${esc(a.why)}</div>
         <div class="actions"><button class="btn ghost" data-action="wish" data-ids="${a.add.join(',')}">У спіс пакупак</button></div></div>`).join('') || '<p class="sub">Кошык выглядае збалансаваным.</p>'}
     </div>
     <div class="card" style="border:1px dashed var(--mid);background:transparent"><div class="row"><span class="small">Скідкі тыдня ў Lidl, Бядронцы і Карфуры пад вашы замены</span><span class="small muted">пазней</span></div></div>`;
+}
+
+const pp = (d) => `${d > 0 ? '+' : '−'}${Math.abs(Math.round(d * 100))} п.п.`;
+const VERDICT = { better: 'лепш', worse: 'горш', neutral: '' };
+
+// Дынаміка па месяцах: карысная і «варта менш» доля кожнага месяца, змены супраць мінулага, табліца груп.
+function dynamicsSection(months) {
+  if (months.length < 2) {
+    return `<div class="section"><h2>Па месяцах</h2><p class="note">Дынаміка з'явіцца, калі будуць чэкі хаця б за два месяцы.</p></div>`;
+  }
+  const t = todayISO();
+  const last = months.slice(-6);
+  const cur = months[months.length - 1];
+  const prev = months[months.length - 2];
+  const sum = monthSummary(cur, prev);
+  const head = sum.better ? 'Кошык стаў карысней, чым у мінулым месяцы' : sum.worse ? 'Кошык стаў горшым, чым у мінулым месяцы' : 'Кошык амаль такі, як у мінулым месяцы';
+  const rows = last.map((m) => {
+    const g = Math.round(m.good * 100), l = Math.round(m.less * 100), o = Math.max(0, 100 - g - l);
+    return `<div class="mrow" title="${monthLabel(m.month)}: карыснае ${g}%, варта менш ${l}%, іншае ${o}%">
+      <div class="mname">${cap(monthLabel(m.month, { short: true }))}${isPartial(m.month, t) ? '*' : ''}</div>
+      <div class="stack" aria-hidden="true"><i class="good" style="width:${g}%"></i><i style="width:${o}%"></i><i class="less" style="width:${l}%"></i></div>
+      <div class="mnum"><b>${g}%</b> · <span>${l}%</span></div>
+      <div class="sr">${monthLabel(m.month)}: карыснае ${g}%, варта менш ${l}%, ${m.receipts} ${plural(m.receipts, 'чэк', 'чэкі', 'чэкаў')}, ${zl(m.total)}</div>
+    </div>`;
+  }).join('');
+  const changes = compareMonths(cur, prev).slice(0, 5);
+  const changeList = changes.length
+    ? `<div class="changes">${changes.map((c) => `<div class="change ${c.verdict}"><span>${esc(CATEGORIES[c.category] ?? c.category)}</span><span class="pct">${Math.round(c.before * 100)}% → ${Math.round(c.now * 100)}%</span><span class="delta">${c.delta > 0 ? '↑' : '↓'} ${pp(c.delta)}${VERDICT[c.verdict] ? ` · ${VERDICT[c.verdict]}` : ''}</span></div>`).join('')}</div>`
+    : '<p class="sub">Прыкметных змен няма.</p>';
+  const table = `<div class="mtable-wrap"><table class="mtable">
+      <caption class="sr">Доля выдаткаў па групах, працэнты, па месяцах</caption>
+      <thead><tr><th scope="col">Група</th>${last.map((m) => `<th scope="col">${monthLabel(m.month, { short: true })}${isPartial(m.month, t) ? '*' : ''}</th>`).join('')}</tr></thead>
+      <tbody>${WATCH.filter((c) => last.some((m) => m.share(c) > 0)).map((c) => `<tr class="${GOOD.has(c) ? 'good' : 'less'}"><th scope="row">${esc(CATEGORIES[c])}</th>${last.map((m) => {
+        const v = Math.round(m.share(c) * 100);
+        return `<td>${v ? `${v}%` : '—'}</td>`;
+      }).join('')}</tr>`).join('')}</tbody>
+    </table></div>`;
+  return `<div class="section"><h2>Па месяцах</h2>
+    <div class="card">
+      <div class="title">${head}</div>
+      <div class="sub">${cap(monthLabel(cur.month))} супраць папярэдняга: карыснае ${pp(sum.good)}, «варта менш» ${pp(sum.less)}</div>
+      <div class="months">${rows}</div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>карыснае</span><span><i style="background:var(--chip)"></i>іншае</span><span><i style="background:var(--less)"></i>варта менш</span></div>
+    </div>
+    <div class="card"><h2>Што змянілася · ${monthLabel(cur.month, { short: true })} супраць ${monthLabel(prev.month, { short: true })}</h2>${changeList}</div>
+    <div class="card"><h2>Групы па месяцах</h2>${table}</div>
+    <p class="note">Доля — частка выдаткаў на ежу і пітво. ${last.some((m) => isPartial(m.month, t)) ? '* Месяц яшчэ не скончыўся. ' : ''}Калі ў месяцы чэкі толькі з адной крамы, карціна няпоўная.</p>
+  </div>`;
 }
 
 const WEEK = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -786,9 +845,28 @@ function viewKitchen() {
     </div>
     ${tastesSection()}
     <p class="note">Змены тут перабудоўваюць план з заўтрашняга дня; сённяшнія прыёмы і вашы адзнакі застаюцца.</p>
-    <div class="section">
+    ${dataSection()}`;
+}
+
+function dataSection() {
+  const t = todayISO();
+  const last = state.backupAt ? `Апошняя копія: ${Number(state.backupAt.slice(8))} ${MONTHS[Number(state.backupAt.slice(5, 7)) - 1]} ${state.backupAt.slice(0, 4)}.` : 'Копіі яшчэ не было.';
+  const r = ui.restore;
+  const confirm = r ? `<div class="card selected">
+      <div class="title">Аднавіць з копіі${r.savedAt ? ` ад ${shortDate(r.savedAt)}.${r.savedAt.slice(0, 4)}` : ''}?</div>
+      <div class="sub">У копіі: ${r.summary.receipts} ${plural(r.summary.receipts, 'чэк', 'чэкі', 'чэкаў')}${r.summary.from ? ` (${shortDate(r.summary.from)}.${r.summary.from.slice(0, 4)} – ${shortDate(r.summary.to)}.${r.summary.to.slice(0, 4)})` : ''}, ${r.summary.cooked} з'едзеных страў, план на ${daysWord(r.summary.planDays)}. Цяперашнія дадзеныя на гэтай прыладзе заменяцца копіяй.</div>
+      <div class="actions"><button class="btn" data-action="restore-apply">Аднавіць</button><button class="btn ghost" data-action="restore-cancel">Не трэба</button></div>
+    </div>` : '';
+  return `<div class="section" id="data">
       <h2>Дадзеныя</h2>
-      <p class="note">${receiptCount(state.lines)} чэкаў, ${Object.keys(stock).length} прадуктаў у гісторыі пакупак, ${state.cooked.length} з'едзеных страў. Усё ляжыць толькі ў гэтым браўзеры.</p>
+      <p class="note">${receiptCount(state.lines)} чэкаў, ${Object.keys(stock).length} прадуктаў у гісторыі пакупак, ${state.cooked.length} з'едзеных страў. Усё ляжыць толькі ў гэтым браўзеры: калі ачысціць браўзер ці памяняць тэлефон, яно знікне. Копія ў файл захоўвае ўсё: чэкі, план, спіс пакупак, налады і густы.</p>
+      <p class="sub${needsBackup(state, t) ? ' warn' : ''}">${last}</p>
+      ${confirm}
+      <div class="actions">
+        <button class="btn" data-action="backup-save">Захаваць копію</button>
+        <label class="btn ghost file-btn">Аднавіць з копіі<input type="file" accept=".json,application/json" data-restore class="sr"></label>
+      </div>
+      <p class="note">Файл можна адправіць сабе ў месенджар ці на пошту і адкрыць на другім тэлефоне праз «Аднавіць з копіі».</p>
       <button class="btn ghost" data-action="reset">${ui.confirmReset ? 'Націсніце яшчэ раз, каб выдаліць усё' : 'Выдаліць усе дадзеныя'}</button>
     </div>`;
 }
@@ -1056,6 +1134,43 @@ const actions = {
     settingsChanged();
     toast(unknown.length ? `Не пазнаў: ${unknown.join(', ')}` : 'Захавана');
   },
+  'basket-month'(el) { ui.basketMonth = el.dataset.month || null; },
+  async 'backup-save'() {
+    const t = todayISO();
+    const text = makeBackup({ ...state, backupAt: t }, new Date().toISOString());
+    const fname = backupName(t);
+    const file = new File([text], fname, { type: 'application/json' });
+    // На тэлефоне — праз «Падзяліцца»: адтуль можна захаваць у Файлы, на Дыск ці адправіць сабе.
+    try {
+      if (matchMedia('(pointer: coarse)').matches && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Talerka: копія дадзеных' });
+      } else {
+        const url = URL.createObjectURL(file);
+        const a = Object.assign(document.createElement('a'), { href: url, download: fname });
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (e) {
+      if (e?.name !== 'AbortError') toast('Не атрымалася захаваць копію');
+      return;
+    }
+    state.backupAt = t;
+    save();
+    toast(`Копія захавана: ${fname}`);
+  },
+  'restore-cancel'() { ui.restore = null; },
+  'restore-apply'() {
+    const r = ui.restore;
+    if (!r) return;
+    ui.restore = null;
+    state = r.state;
+    const t = todayISO();
+    ensurePlan(state, t);
+    save();
+    toast('Дадзеныя адноўлены з копіі');
+  },
   reset() {
     if (!ui.confirmReset) { ui.confirmReset = true; return; }
     state = defaultState();
@@ -1073,7 +1188,7 @@ const SAID = {
   'clear-bought': 'Купленае прыбрана', 'forget-taste': 'Густ скінуты', have: 'Адзначана: ёсць дома',
 };
 // Адзнаку «купіў» і так можна зняць тым жа дотыкам.
-const NO_UNDO = new Set(['undo', 'share', 'bought', 'alt-open', 'alt-reason', 'add-tab', 'rc-store', 'rc-add-line', 'rc-cancel']);
+const NO_UNDO = new Set(['undo', 'share', 'backup-save', 'restore-cancel', 'basket-month', 'bought', 'alt-open', 'alt-reason', 'add-tab', 'rc-store', 'rc-add-line', 'rc-cancel']);
 
 // Любое дзеянне, што змяніла дадзеныя, можна адмяніць з падказкі ўнізе.
 async function withUndo(fn, said = null) {
@@ -1123,9 +1238,23 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target;
   if (el.dataset.photo != null) { addPhotos([...el.files]); el.value = ''; return; }
+  if (el.dataset.restore != null) { pickBackup(el.files[0]); el.value = ''; return; }
   if (el.dataset.rc) { rcInput(el); return; }
   if (el.dataset.setting || el.dataset.member != null) withUndo(() => applyChange(el), 'Захавана').then(render);
 });
+
+// Файл копіі: спачатку паказваем, што ў ім, і толькі потым аднаўляем.
+async function pickBackup(file) {
+  if (!file) return;
+  try {
+    ui.restore = readBackup(await file.text(), todayISO());
+  } catch (e) {
+    ui.restore = null;
+    toast(e instanceof BackupError ? e.message : 'Не атрымалася прачытаць файл');
+  }
+  render();
+  document.getElementById('data')?.scrollIntoView({ block: 'start' });
+}
 
 function applyChange(el) {
   if (el.dataset.setting) {
