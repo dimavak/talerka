@@ -1,10 +1,10 @@
 // Service worker: аплікацыя адкрываецца і без сеткі (спіс пакупак у краме), значок на экране.
 // Свае файлы — спачатку з сеткі, каб абнаўленні прыходзілі адразу; без сеткі — з кэша.
 // Распазнаванне (vendor/) вялікае і не мяняецца — бярэцца з кэша, калі ўжо загружалася.
-const CACHE = 'talerka-r2-1';
+const CACHE = 'talerka-r3-1';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css', 'icon.svg', 'icon-192.png',
-  'js/app.js', 'js/products.js', 'js/templates.js', 'js/engine.js', 'js/receipt.js', 'js/store.js', 'js/demo.js',
+  'js/app.js', 'js/products.js', 'js/templates.js', 'js/recipe-parts.js', 'js/recipes-more.js', 'js/engine.js', 'js/receipt.js', 'js/store.js', 'js/demo.js',
   'js/stock.js', 'js/plan.js', 'js/shopping.js', 'js/receipt-ocr.js', 'js/receipt-image.js', 'js/ocr.js',
 ];
 

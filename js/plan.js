@@ -4,8 +4,9 @@ import { BY_ID } from './products.js';
 import { BY_TEMPLATE } from './templates.js';
 import {
   MEALS, addDays, weekdayOf, timeLimit, usableMethods, nutrition, pickDish,
-  emptyCtx, addToCtx, checkRules, mainIds,
+  emptyCtx, addToCtx, checkRules, mainIds, MAX_PER_WEEK, buildDish, scoreDish, fillVariants, fillKey, noWorse, allowed,
 } from './engine.js';
+import { TEMPLATES } from './templates.js';
 import { stockOn, availability, purchaseEvents } from './stock.js';
 
 export const HORIZON = 7;
@@ -110,7 +111,84 @@ function ctxFor(state, date, meal, pending) {
   }
   ctx.dayIds = dayIds;
   ctx.lastId = lastKey ? getSlot(state, lastKey)?.tpl ?? null : null;
-  return ctx;
+  ctx.capped = cappedTemplates(state, date, self, pending);
+  return Object.assign(ctx, tasteCtx(state));
+}
+
+// Стравы, якія ўжо былі MAX_PER_WEEK разоў у нейкіх 7 днях запар вакол даты (з'едзеныя і запланаваныя).
+function cappedTemplates(state, date, self, pending) {
+  const dates = {};
+  for (let i = -6; i <= 6; i++) {
+    const d = addDays(date, i);
+    for (const m of MEALS) {
+      const k = keyOf(d, m);
+      const slot = getSlot(state, k);
+      if (k === self || pending.has(k) || !slot?.tpl || !HAS_DISH.has(slot.state) || slot.leftoverOf) continue;
+      (dates[slot.tpl] ??= []).push(i);
+    }
+  }
+  const capped = new Set();
+  for (const [tpl, offs] of Object.entries(dates)) {
+    // Ці ёсць акно з 7 дзён, што ўключае гэтую дату і ўжо мае MAX_PER_WEEK такіх страў.
+    for (let w = -6; w <= 0; w++) {
+      if (offs.filter((o) => o >= w && o <= w + 6).length >= MAX_PER_WEEK) { capped.add(tpl); break; }
+    }
+  }
+  return capped;
+}
+
+// ── Густы сям'і ──
+// state.tastes = {шаблон: {dislike: колькі разоў «не падабаецца», love: true}}.
+export const HIDE_AFTER = 2;
+
+export function tasteCtx(state) {
+  const loved = new Set(), disliked = new Set(), hidden = new Set();
+  for (const [id, t] of Object.entries(state.tastes ?? {})) {
+    if (t.love) loved.add(id);
+    if ((t.dislike ?? 0) >= HIDE_AFTER) hidden.add(id);
+    else if (t.dislike) disliked.add(id);
+  }
+  return { loved, disliked, hidden };
+}
+
+export function toggleLove(state, tpl) {
+  const t = { ...(state.tastes?.[tpl] ?? {}) };
+  t.love = !t.love;
+  // Сэрца здымае ранейшыя «не падабаецца».
+  if (t.love) delete t.dislike;
+  state.tastes = { ...(state.tastes ?? {}), [tpl]: t };
+  return t.love;
+}
+
+// «Не падабаецца»: першы раз страва проста радзей, другі — больш не прапануецца.
+export function addDislike(state, tpl) {
+  const t = { ...(state.tastes?.[tpl] ?? {}) };
+  t.dislike = (t.dislike ?? 0) + 1;
+  delete t.love;
+  state.tastes = { ...(state.tastes ?? {}), [tpl]: t };
+  return t.dislike >= HIDE_AFTER;
+}
+
+export function forgetTaste(state, tpl) {
+  const { [tpl]: _, ...rest } = state.tastes ?? {};
+  state.tastes = rest;
+}
+
+// Тое, што трэба для іншых запланаваных страў, будзе куплена, таму можна разлічваць і на гэта.
+function plannedBuys(state, today, except) {
+  const buys = new Set();
+  for (const [date, day] of Object.entries(state.plan)) {
+    if (date < today) continue;
+    for (const m of MEALS) if (!except.has(keyOf(date, m)) && day[m]?.state === 'planned') slotIds(day[m]).forEach((id) => buys.add(id));
+  }
+  return buys;
+}
+
+function withBuys(av, buys) {
+  const have = new Set(av.have);
+  const maybe = new Set(av.maybe);
+  buys.forEach((id) => { have.add(id); maybe.delete(id); });
+  return { have, maybe };
 }
 
 // Перазапаўняе слоты ў храналагічным парадку. Кожная страва можа патрабаваць адну дакупку;
@@ -119,12 +197,7 @@ export function refill(state, keys, today, { avoid = {} } = {}) {
   const settings = state.settings;
   const sorted = [...new Set(keys)].sort(byKey);
   const pending = new Set(sorted);
-  const buys = new Set();
-  // Тое, што трэба для захаваных страў, будзе куплена, таму можна разлічваць і на гэта.
-  for (const [date, day] of Object.entries(state.plan)) {
-    if (date < today) continue;
-    for (const m of MEALS) if (!pending.has(keyOf(date, m)) && day[m]?.state === 'planned') slotIds(day[m]).forEach((id) => buys.add(id));
-  }
+  const buys = plannedBuys(state, today, pending);
   const stockCache = {};
   for (const key of sorted) {
     const { date, meal } = parseKey(key);
@@ -146,9 +219,7 @@ export function refill(state, keys, today, { avoid = {} } = {}) {
       }
     }
     stockCache[date] ??= availability(stockOn(state, date));
-    const have = new Set(stockCache[date].have);
-    const maybe = new Set(stockCache[date].maybe);
-    buys.forEach((id) => { have.add(id); maybe.delete(id); });
+    const { have, maybe } = withBuys(stockCache[date], buys);
     const dish = pickDish({
       meal, mode, have, maybe, settings,
       limit: mode === 'take' ? null : limitFor(state, date, meal),
@@ -296,6 +367,50 @@ export function reroll(state, key, today) {
   // Калі ўсе варыянты адхілены, пачынаем кола зноў.
   if (getSlot(state, key).state === 'empty' && avoid.size > 1) refill(state, [key], today, { avoid: { [key]: new Set([slot.tpl].filter(Boolean)) } });
   refreshLeftover(state, key, today);
+}
+
+// «Іншы варыянт»: спачатку тая ж страва з іншым напаўненнем, потым да трох іншых страў.
+// Усе замены не горшыя за бягучую па правілах (noWorse). reason мяняе падбор:
+// too-long — толькі хутчэйшыя, dislike — без гэтай стравы, missing — без «правер, ці ёсць».
+export const REASONS = { today: 'не сёння', long: 'задоўга', dislike: 'не падабаецца', missing: 'чагосьці няма' };
+
+export function alternatives(state, key, today, reason = 'today') {
+  const slot = getSlot(state, key);
+  const cur = dishAt(state, key);
+  if (!slot || !cur) return { variants: [], others: [] };
+  const { date, meal } = parseKey(key);
+  const settings = state.settings;
+  const { have, maybe } = withBuys(availability(stockOn(state, date)), plannedBuys(state, today, new Set([key])));
+  const ctx = ctxFor(state, date, meal, new Set([key]));
+  const mode = slot.mode;
+  let limit = mode === 'take' ? null : limitFor(state, date, meal);
+  if (reason === 'long') limit = Math.max(5, Math.min(limit ?? Infinity, cur.method.total) - 5);
+  const fresh = (d) => d.missing.length === 0 && (reason !== 'missing' || !d.check.length);
+  const variants = reason === 'dislike' || reason === 'long' ? []
+    : fillVariants(cur.template, have, settings, limit, maybe, new Set([fillKey(cur.chosen)]))
+      .filter((d) => noWorse(d, cur))
+      .map((d) => ({ ...d, score: scoreDish(d, { ...ctx, meal }) }));
+  const rejected = new Set(slot.rejected ?? []);
+  const others = TEMPLATES
+    .filter((t) => t.id !== cur.template.id && t.meal.includes(meal) && (mode !== 'take' || t.portable) && allowed(t, ctx))
+    .map((t) => buildDish(t, have, settings, limit, maybe))
+    .filter((d) => d && d.missing.length <= 1 && noWorse(d, cur))
+    .map((d) => ({ ...d, score: scoreDish(d, { ...ctx, meal }) - (rejected.has(d.template.id) ? 2 : 0) - (fresh(d) ? 0 : 1) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  return { variants, others };
+}
+
+// Выбар з «Іншага варыянту»: новая страва ў слоце, прычына запамінаецца.
+export function chooseAlternative(state, key, dish, reason, today) {
+  const slot = getSlot(state, key) ?? {};
+  const old = slot.tpl;
+  const rejected = [...new Set([...(slot.rejected ?? []), ...(old && old !== dish.template.id ? [old] : [])])];
+  let hidden = false;
+  if (reason === 'dislike' && old) hidden = addDislike(state, old);
+  setSlot(state, key, { mode: slot.mode ?? 'home', ...(slot.userMode ? { userMode: true } : {}), state: 'planned', ...dishFields(dish), ...(rejected.length ? { rejected } : {}) });
+  refreshLeftover(state, key, today);
+  return { hidden };
 }
 
 // Што страву «з рэштак» трэба згатаваць з запасам: колькі порцый на заўтрашні абед.

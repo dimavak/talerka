@@ -4,17 +4,10 @@
 // methods — спосабы на рознай тэхніцы: total і active у хвілінах, pots — колькі посуду мыць.
 // portable — добра трываць да абеду ў кантэйнеры; batch — варта гатаваць на два разы.
 
-const FISH_FRESH = ['salmon', 'mackerel', 'cod'];
-const FISH_READY = ['smoked_salmon', 'smoked_trout', 'tuna', 'sprats', 'herring', 'mackerel'];
-const POULTRY = ['chicken_breast', 'turkey', 'chicken_thigh', 'chicken_marinated'];
-const VEG_COOK = ['broccoli', 'frozen_veg', 'zucchini', 'pepper', 'carrot', 'cauliflower', 'spinach', 'cabbage', 'onion', 'mushrooms', 'beet'];
-const VEG_RAW = ['cucumber', 'tomato', 'pepper', 'rocket', 'lettuce', 'radish', 'spinach', 'celery', 'greens', 'avocado'];
-const GRAIN = ['buckwheat', 'barley', 'brown_rice', 'bulgur', 'wholemeal_pasta', 'pasta', 'rice'];
-const FRUIT = ['blueberries', 'banana', 'apple', 'pear', 'mandarin', 'nectarine', 'mango', 'grapes', 'berries_fresh', 'prunes', 'apricots_dried'];
-const NUTS = ['walnut', 'pistachio', 'seeds', 'peanuts', 'peanut_butter'];
-const BREAD = ['wholemeal_bread', 'tortilla'];
+import { FISH_FRESH, FISH_READY, POULTRY, VEG_COOK, VEG_RAW, GRAIN, FRUIT, NUTS, BREAD } from './recipe-parts.js';
+import { MORE_TEMPLATES } from './recipes-more.js';
 
-export const TEMPLATES = [
+const BASE_TEMPLATES = [
   // ── Сняданкі ──
   {
     id: 'b-cottage-fruit', meal: ['breakfast'], title: 'Сырок з садавінай і арэхамі',
@@ -372,5 +365,23 @@ export const TEMPLATES = [
     methods: [{ equip: 'none', total: 7, active: 7, pots: 0, steps: ['Нарэжце гародніну і хлеб.', 'Выкладзіце ўсё на адну талерку — палова талеркі гародніна.'] }],
   },
 ];
+
+// Польскія назвы першых 31 страў: для пошуку рэцэпта на польскіх сайтах і будучай польскай версіі.
+const PL = {
+  'b-cottage-fruit': 'serek wiejski z owocami i orzechami', 'b-oats': 'owsianka z owocami', 'b-eggs-veg': 'jajecznica z warzywami',
+  'b-tortilla-egg': 'tortilla z jajkiem i warzywami', 'b-sandwich': 'kanapki z hummusem i warzywami', 'b-smoothie': 'koktajl kefirowy z płatkami owsianymi',
+  'b-syrniki': 'placuszki twarogowe z mąki owsianej', 'b-avocado-toast': 'tosty z awokado i jajkiem',
+  'l-grain-poultry': 'kasza z kurczakiem i warzywami', 'l-legume-bowl': 'miska z kaszą, ciecierzycą i warzywami', 'l-lentil-soup': 'zupa z soczewicy',
+  'l-tortilla-wrap': 'wrap z kurczakiem i warzywami', 'l-pasta-fish': 'makaron z rybą i pomidorami', 'l-potato-cottage': 'ziemniaki z twarożkiem',
+  'l-tray-poultry': 'kurczak z pieczonymi warzywami', 'l-beans-mexican': 'fasola po meksykańsku z ryżem', 'l-beet-goat': 'sałatka z buraków z kozim serem',
+  'l-canned-fish': 'sałatka z tuńczykiem', 'l-barley-mushroom': 'kasza pęczak z grzybami i indykiem', 'l-oven-omelette': 'omlet z piekarnika z warzywami',
+  'l-buckwheat-quark': 'kasza gryczana z twarogiem i jajkiem', 'd-fish-tray': 'ryba pieczona z warzywami', 'd-chickpea-yogurt': 'ciecierzyca z sosem jogurtowym',
+  'd-shakshuka': 'szakszuka', 'd-stirfry': 'warzywa z kurczakiem z patelni', 'd-quesadilla': 'quesadilla z fasolą i serem',
+  'd-quark-potato': 'twarożek ze szczypiorem i ziemniakami', 'd-mackerel-potato': 'makrela pieczona z ziemniakami', 'd-roast-veg-legume': 'pieczone warzywa z ciecierzycą i fetą',
+  'd-lentil-egg': 'soczewica z warzywami i jajkiem', 'd-cold-plate': 'zimna płyta: ryba, ser, warzywa',
+};
+
+// Уся база: першыя 31 страва (свае, src: 'own') і дададзеныя ў R3 (recipes-more.js).
+export const TEMPLATES = [...BASE_TEMPLATES.map((t) => ({ src: 'own', pl: PL[t.id], ...t })), ...MORE_TEMPLATES];
 
 export const BY_TEMPLATE = Object.fromEntries(TEMPLATES.map((t) => [t.id, t]));

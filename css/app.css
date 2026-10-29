@@ -245,3 +245,13 @@ a.cell::after { content: ' ›'; color: var(--mid); }
 .rname { flex: 1; min-width: 0; font-family: 'JetBrains Mono', ui-monospace, monospace; }
 .rpaid { width: 84px; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
 .rprod { width: 100%; }
+
+/* R3: «Іншы варыянт» і густы */
+.alt { display: flex; flex-direction: column; gap: 8px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.altrow { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.altrow .grow { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.altrow .title { font-size: 15px; }
+.btn.heart { width: 44px; padding: 0; color: var(--muted); }
+.btn.heart[aria-pressed="true"] { color: var(--buy); border-color: var(--buy-line); background: var(--buy-soft); }
+.btn.heart[aria-pressed="true"] svg path { fill: currentColor; }
+.links a { white-space: nowrap; }

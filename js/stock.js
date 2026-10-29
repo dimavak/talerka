@@ -17,6 +17,7 @@ const PRODUCT_DAYS = {
   apple: 21, mandarin: 14, lemon: 21, banana: 5, berries_fresh: 3, blueberries: 4, grapes: 5, nectarine: 5,
   apricots_dried: 90, prunes: 90, wholemeal_bread: 5, tortilla: 21, oats: 90,
   mustard: 120, tomato_passata: 120, peanut_butter: 90,
+  pickles: 60, sauerkraut: 21, leek: 14, pumpkin: 30, millet: 90,
 };
 
 export const LIKELY = 0.5;

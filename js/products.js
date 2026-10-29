@@ -22,6 +22,7 @@ export const GROUPS = {
 export const PRODUCTS = [
   // Гародніна
   { id: 'pepper', name: 'перац', group: 'veg', p: 1, f: 2, plant: true, pl: 'papryk', aka: ['перац', 'перец', 'papryka'] },
+  { id: 'pickles', name: 'салёныя агуркі', group: 'veg', p: 0.6, f: 1, plant: true, pl: 'ogór\\S* kisz|kiszon\\S* ogór|ogórki konserw', aka: ['салёныя агуркі', 'квашаныя агуркі', 'солёные огурцы', 'малосольные'] },
   { id: 'cucumber', name: 'агурок', group: 'veg', p: 0.7, f: 0.5, plant: true, pl: 'ogór', aka: ['агурок', 'агуркі', 'огурец', 'огурцы'] },
   { id: 'tomato', name: 'памідоры', group: 'veg', p: 0.9, f: 1.2, plant: true, pl: '(?<!sosie )pomid|pom\\.', aka: ['памідор', 'памідоры', 'помидор', 'помидоры'] },
   { id: 'rocket', name: 'рукала', group: 'veg', p: 2.6, f: 1.6, plant: true, pl: 'rukol', aka: ['рукала', 'рукола', 'руккола'] },
@@ -37,8 +38,11 @@ export const PRODUCTS = [
   { id: 'greens', name: 'зеляніна', group: 'veg', p: 3, f: 3, plant: true, pl: 'natka|zielenin|koper|szczypior', aka: ['зеляніна', 'пятрушка', 'кроп', 'зелень', 'укроп'] },
   { id: 'frozen_veg', name: 'марожаная гародніна', group: 'veg', p: 2.5, f: 3, plant: true, pl: 'warzywa? (na patel|mro)|mieszanka warz|mrożon', aka: ['марожаная гародніна', 'марожаная', 'замороженные овощи', 'мароз'] },
   { id: 'broccoli', name: 'брокалі', group: 'veg', p: 2.8, f: 2.6, plant: true, pl: 'brokuł', aka: ['брокалі', 'брокколи', 'брокалі марожаныя'] },
+  { id: 'sauerkraut', name: 'квашаная капуста', group: 'veg', p: 1, f: 2.5, plant: true, pl: 'kapust\\S* kisz|kiszon\\S* kapust', aka: ['квашаная капуста', 'квашеная капуста', 'кислая капуста'] },
   { id: 'cabbage', name: 'капуста', group: 'veg', p: 1.3, f: 2.5, plant: true, pl: 'kapust', aka: ['капуста'] },
   { id: 'cauliflower', name: 'каляровая капуста', group: 'veg', p: 1.9, f: 2, plant: true, pl: 'kalafior', aka: ['каляровая капуста', 'цветная капуста'] },
+  { id: 'leek', name: 'парэй', group: 'veg', p: 1.5, f: 1.8, plant: true, pl: '\\bpor(y|u)?\\b|pory\\b', aka: ['парэй', 'лук-порей', 'порей'] },
+  { id: 'pumpkin', name: 'гарбуз', group: 'veg', p: 1, f: 1.5, plant: true, pl: 'dyni|dynia', aka: ['гарбуз', 'тыква'] },
   { id: 'mushrooms', name: 'грыбы', group: 'veg', p: 3, f: 1, plant: true, pl: 'pieczark|grzyb', aka: ['грыбы', 'шампіньёны', 'грибы', 'шампиньоны'] },
   { id: 'avocado', name: 'авакада', group: 'veg', p: 2, f: 6.7, plant: true, pl: 'awokado', aka: ['авакада', 'авокадо'] },
   { id: 'potato', name: 'бульба', group: 'starch', p: 2, f: 2.2, plant: true, pl: 'ziemn', aka: ['бульба', 'картофель', 'картошка'] },
@@ -62,6 +66,7 @@ export const PRODUCTS = [
   { id: 'oats', name: 'аўсянка', group: 'grain_whole', p: 13, f: 10, plant: true, pl: 'owsian|płatki ow', aka: ['аўсянка', 'аўсяныя шматкі', 'овсянка', 'геркулес'] },
   { id: 'barley', name: 'пярлоўка', group: 'grain_whole', p: 3.5, f: 4, plant: true, pl: 'pęczak|jęczmien', aka: ['пярлоўка', 'перловка'] },
   { id: 'brown_rice', name: 'цёмны рыс', group: 'grain_whole', p: 2.6, f: 1.8, plant: true, pl: 'ryż (brąz|pełnoz|dzik)', aka: ['цёмны рыс', 'бурый рис'] },
+  { id: 'millet', name: 'пшано', group: 'grain_whole', p: 3.5, f: 1.3, plant: true, pl: 'jaglan', aka: ['пшано', 'пшонка', 'пшено'] },
   { id: 'bulgur', name: 'булгур', group: 'grain_whole', p: 3.1, f: 4.5, plant: true, pl: 'bulgur', aka: ['булгур'] },
   { id: 'tortilla', name: 'цэльназерневая тартыля', group: 'grain_whole', p: 9, f: 6, plant: true, pl: 'tortilla pełn', aka: ['тартыля', 'тортилья', 'лаваш'] },
   { id: 'wholemeal_bread', name: 'цёмны хлеб', group: 'grain_whole', p: 8, f: 6, plant: true, pl: 'chleb (żyt|raz|pełn|graham)', aka: ['цёмны хлеб', 'хлеб', 'чёрный хлеб'] },

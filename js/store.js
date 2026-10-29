@@ -32,6 +32,8 @@ export function defaultState() {
     cooked: [],
     // Слоўнік назваў з чэкаў: «hummus» → id складніка або '' («не для страў»).
     aliases: {},
+    // Густы: {шаблон: {dislike: n, love: true}}.
+    tastes: {},
   };
 }
 
