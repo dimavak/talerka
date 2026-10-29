@@ -46,6 +46,9 @@ export function fillTemplate(template, have, exclude = [], maybe = null) {
   return { chosen, missing };
 }
 
+// Грамы на порцыю: gx — свае грамы для асобных варыянтаў (бульбы бярэцца больш, чым сухой крупы).
+export const slotGrams = (slot, id) => slot.gx?.[id] ?? slot.g;
+
 // Лічыць бялок, валакно, расліны і тэгі для запоўненага шаблона.
 // Пасля дакупкі: missing таксама ўлічваецца, бо страву ацэньваюць такой, якой яна будзе.
 export function nutrition(filled) {
@@ -56,8 +59,8 @@ export function nutrition(filled) {
   const grams = {};
   const plate = { plant: 0, grain: 0, protein: 0 };
   for (const { slot, ids } of [...filled.chosen, ...filled.missing]) {
-    const g = slot.g / ids.length;
     for (const id of ids) {
+      const g = slotGrams(slot, id) / ids.length;
       const p = BY_ID[id];
       if (!p) continue;
       protein += (p.p * g) / 100;

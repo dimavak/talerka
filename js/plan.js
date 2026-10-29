@@ -2,7 +2,8 @@
 // а будучыя прыёмы перабудоўваюцца толькі па змене карыстальніка. Без DOM, каб працавала ў тэстах.
 import { BY_ID } from './products.js';
 import { BY_TEMPLATE } from './templates.js';
-import {
+import { dishTitle } from './dish-names.js';
+import { slotGrams,
   MEALS, addDays, weekdayOf, timeLimit, usableMethods, nutrition, pickDish,
   emptyCtx, addToCtx, checkRules, mainIds, MAX_PER_WEEK, buildDish, scoreDish, fillVariants, fillKey, noWorse, allowed,
 } from './engine.js';
@@ -69,10 +70,24 @@ export function dishFromSlot(slot, settings) {
   const t = BY_TEMPLATE[slot.tpl];
   if (!t) return null;
   const chosen = t.slots
-    .map((s, i) => ({ slot: s, ids: (slot.fill?.[i] ?? []).filter((id) => BY_ID[id]) }))
+    .map((s, i) => ({ slot: s, ids: fillOf(t, slot.fill)[i] }))
     .filter((c) => c.ids.length);
   const method = t.methods[slot.m] ?? usableMethods(t, settings.equipment, null)[0] ?? t.methods[0];
   return { template: t, method, chosen, missing: [], check: [], ...nutrition({ chosen, missing: [] }) };
+}
+
+// Складнікі па слотах. Калі шаблон з таго часу змяніўся (слоты падзелены ці звужаны),
+// складнікі з захаванага плана раскладваюцца па новых слотах нанова, каб не трапіць не туды.
+function fillOf(t, fill = []) {
+  const known = fill.map((ids) => (ids ?? []).filter((id) => BY_ID[id]));
+  const fits = t.slots.every((s, i) => (known[i] ?? []).length <= (s.pick || 1) && (known[i] ?? []).every((id) => s.opts.includes(id)));
+  if (fits && known.length <= t.slots.length) return t.slots.map((_, i) => known[i] ?? []);
+  const pool = [...new Set(known.flat())];
+  return t.slots.map((s) => {
+    const ids = pool.filter((id) => s.opts.includes(id)).slice(0, s.pick || 1);
+    ids.forEach((id) => pool.splice(pool.indexOf(id), 1));
+    return ids;
+  });
 }
 
 export function dishFields(dish) {
@@ -435,9 +450,8 @@ function roundGrams(g) {
 export function gramsFor(dish, portions) {
   const out = [];
   for (const { slot, ids } of dish.chosen) {
-    const per = slot.g / ids.length;
     for (const id of ids) {
-      const grams = roundGrams(per * portions);
+      const grams = roundGrams((slotGrams(slot, id) / ids.length) * portions);
       const piece = PIECE[id];
       out.push({ id, name: BY_ID[id].name, grams, pieces: piece ? Math.max(1, Math.round(grams / piece)) : null });
     }
@@ -471,7 +485,8 @@ export function moveTargets(state, from, today) {
       if (k === from) continue;
       const s = getSlot(state, k);
       if (s && ['eaten', 'replaced'].includes(s.state)) continue;
-      out.push({ key: k, date, meal: m, current: dishAt(state, k)?.template.title ?? null });
+      const d = dishAt(state, k);
+      out.push({ key: k, date, meal: m, current: d ? dishTitle(d) : null });
     }
   }
   return out;
