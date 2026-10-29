@@ -1,6 +1,7 @@
 // Інтэрфейс Talerka: экраны па першым дызайне, маршрутызацыя праз #.
 import { BY_ID, PRODUCTS, GROUPS } from './products.js';
 import { BY_TEMPLATE } from './templates.js';
+import { dishTitle, dishSteps } from './dish-names.js';
 import {
   MEALS, MEAL_NAMES, EQUIPMENT, WEEKDAY_SHORT, WEEK_GOALS,
   suggestNow, weekdayOf, addDays, dishLabel,
@@ -157,7 +158,7 @@ function recipe(d, key, portions, forceOpen = false) {
     <p class="small muted">На ${esc(who)}</p>
     <ul class="grams">${rows}</ul>
     <p class="small muted">Плюс алей, соль, спецыі.</p>
-    <ol>${d.method.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+    <ol>${dishSteps(d).map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
     ${recipeLinks(d.template)}
   </details>`;
 }
@@ -224,7 +225,7 @@ function slotCard(key, { forceMore = false } = {}) {
   if (slot.state === 'eaten') {
     return `<div class="card quiet">
       ${head(` <span class="tag good">${ICON.check} з'едзена</span>`)}
-      <div class="title">${esc(d.template.title)}</div>
+      <div class="title">${esc(dishTitle(d))}</div>
       <div class="actions"><button class="btn ghost" data-action="unmark" data-key="${key}">Адмяніць</button></div>
     </div>`;
   }
@@ -248,7 +249,7 @@ function slotCard(key, { forceMore = false } = {}) {
       <div class="plate" style="${plateStyle(d)}" aria-hidden="true"></div>
       <div class="meal-body">
         ${head(` · ${slot.leftoverOf ? 'гатова' : methodLine(d.method)} ${chips.join('')}`)}
-        <div class="title">${esc(d.template.title)}</div>
+        <div class="title">${esc(dishTitle(d))}</div>
         <div class="sub">${esc(dishLabel(d))}</div>
       </div>
     </div>
@@ -275,7 +276,7 @@ function altPanel(key, cur) {
   const { variants, others } = alternatives(state, key, todayISO(), reason);
   ui.altList = [...variants, ...others];
   const row = (d, i) => `<div class="altrow">
-      <div class="grow"><div class="title">${esc(d.template.title)}</div>
+      <div class="grow"><div class="title">${esc(dishTitle(d))}</div>
         <div class="sub">${esc(dishLabel(d))}</div>
         <div class="sub">${methodLine(d.method)} · бялок ${d.protein} г${d.missing.length ? ` · дакупіць: ${esc(name(d.missing[0].ids[0]))}` : ''}${d.check.length ? ' · праверыць дома' : ''}</div></div>
       <button class="btn ghost" data-action="pick-alt" data-key="${key}" data-i="${i}">Выбраць</button>
@@ -388,7 +389,7 @@ function viewNow() {
 
   const cards = ready.length ? ready.map((d, i) => `
     <div class="card ${i === 0 ? 'selected' : ''}">
-      <div class="row"><div class="title">${esc(d.template.title)}</div><div class="time">${d.method.total} хв</div></div>
+      <div class="row"><div class="title">${esc(dishTitle(d))}</div><div class="time">${d.method.total} хв</div></div>
       <div class="sub">${esc(dishLabel(d))}</div>
       ${dishTags(d)}
       ${availabilityLine(d)}
@@ -402,7 +403,7 @@ function viewNow() {
     const price = lastPrice(state.lines, upgrade.buy);
     up = `<div class="upgrade">
       <div class="eyebrow">${ICON.cart} Дакупі адно</div>
-      <p><b>${esc(cap(name(upgrade.buy)))}</b>${price ? `, апошні раз ${zl(price.price)} за ${price.unit} у ${esc(price.store)}` : ''}. Тады атрымаецца «${esc(upgrade.dish.template.title)}»: ${esc(upgrade.reasons.join(', '))}.</p>
+      <p><b>${esc(cap(name(upgrade.buy)))}</b>${price ? `, апошні раз ${zl(price.price)} за ${price.unit} у ${esc(price.store)}` : ''}. Тады атрымаецца «${esc(dishTitle(upgrade.dish))}»: ${esc(upgrade.reasons.join(', '))}.</p>
       <div class="actions"><button class="btn" data-action="wish" data-ids="${upgrade.buy}">У спіс пакупак</button></div>
     </div>`;
   }
@@ -621,8 +622,8 @@ function cellText(slot, dish) {
     case 'skipped': return ['прапушчаны', 'skip'];
     case 'replaced': return [REPLACED[slot.replacedBy] ?? 'іншае', 'skip'];
     case 'moved': return ['перанесена', 'skip'];
-    case 'eaten': return [`✓ ${dish?.template.title ?? ''}`, 'done'];
-    default: return [(slot.leftoverOf ? 'З сабой: рэшткі' : slot.mode === 'take' ? 'З сабой: ' + dish.template.title.toLowerCase() : dish.template.title), slot.mode === 'take' ? 'take' : ''];
+    case 'eaten': return [`✓ ${dish ? dishTitle(dish) : ''}`, 'done'];
+    default: return [(slot.leftoverOf ? 'З сабой: рэшткі' : slot.mode === 'take' ? 'З сабой: ' + dishTitle(dish).toLowerCase() : dishTitle(dish)), slot.mode === 'take' ? 'take' : ''];
   }
 }
 
@@ -934,7 +935,7 @@ const actions = {
   eaten(el) {
     const d = markEaten(state, el.dataset.key);
     save();
-    if (d) toast(`Смачна! «${d.template.title}» адзначана`);
+    if (d) toast(`Смачна! «${dishTitle(d)}» адзначана`);
   },
   skip(el) { markSkipped(state, el.dataset.key, todayISO()); ui.more = null; save(); },
   replace(el) { markReplaced(state, el.dataset.key, el.dataset.by, todayISO()); ui.more = null; save(); },
@@ -977,7 +978,7 @@ const actions = {
     ui.alt = null;
     ui.more = null;
     save();
-    toast(hidden && BY_TEMPLATE[old] ? `«${BY_TEMPLATE[old].title}» больш не прапануем. Вярнуць — на «Кухні».` : `Замест гэтага: «${d.template.title}»`);
+    toast(hidden && BY_TEMPLATE[old] ? `«${BY_TEMPLATE[old].title}» больш не прапануем. Вярнуць — на «Кухні».` : `Замест гэтага: «${dishTitle(d)}»`);
   },
   love(el) {
     const on = toggleLove(state, el.dataset.tpl);
@@ -1011,7 +1012,7 @@ const actions = {
     setDish(state, key, d, t);
     markEaten(state, key);
     save();
-    toast(`Смачна! «${d.template.title}» адзначана`);
+    toast(`Смачна! «${dishTitle(d)}» адзначана`);
     location.hash = '#/';
   },
   'now-meal'(el) { ui.nowMeal = el.dataset.meal; },
